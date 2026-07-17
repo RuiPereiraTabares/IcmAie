@@ -1,0 +1,1337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IcM Queue Analyzer — Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Fluent Design Tokens ─────────────────────────────────────── */
+:root {
+  --ms-brand: #0078d4;
+  --ms-brand-dark: #005a9e;
+  --ms-brand-light: #deecf9;
+  --ms-brand-xlight: #eff6fc;
+  --ms-red: #c50f1f;
+  --ms-red-bg: #fde7e9;
+  --ms-red-border: #f4b8bc;
+  --ms-yellow-text: #7a5c00;
+  --ms-yellow-bg: #fff4ce;
+  --ms-yellow-border: #f4d27e;
+  --ms-yellow-dot: #ffb900;
+  --ms-green: #107c10;
+  --ms-green-bg: #dff6dd;
+  --ms-green-border: #9fd89e;
+  --ms-purple: #5c2d91;
+  --ms-purple-bg: #e9d7f5;
+  --ms-purple-border: #c6aedf;
+  --ms-teal: #038387;
+  --ms-teal-bg: #d0f0f3;
+  --ms-teal-border: #9dd4d8;
+  --ms-bg: #f5f4f3;
+  --ms-surface: #ffffff;
+  --ms-surface-alt: #f3f2f1;
+  --ms-stroke: #edebe9;
+  --ms-stroke-strong: #c8c6c4;
+  --ms-text: #201f1e;
+  --ms-text-secondary: #605e5c;
+  --ms-text-disabled: #a19f9d;
+  --ms-shadow-2: 0 1.6px 3.6px rgba(0,0,0,.132), 0 0.3px 0.9px rgba(0,0,0,.108);
+  --ms-shadow-4: 0 3.2px 7.2px rgba(0,0,0,.132), 0 0.6px 1.8px rgba(0,0,0,.108);
+  --ms-shadow-8: 0 6.4px 14.4px rgba(0,0,0,.132), 0 1.2px 3.6px rgba(0,0,0,.108);
+  --ms-shadow-16: 0 12.8px 28.8px rgba(0,0,0,.22), 0 2.4px 7.2px rgba(0,0,0,.18);
+  --ms-r: 4px;
+  --ms-r-lg: 8px;
+  --ms-dur: 180ms;
+  --ms-ease: cubic-bezier(0.33, 0, 0.67, 1);
+}
+body {
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  background: var(--ms-bg);
+  color: var(--ms-text);
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* ── HEADER ─────────────────────────────────────────────────────── */
+.header {
+  background: linear-gradient(135deg, #1b3a5c 0%, #0078d4 100%);
+  color: #fff;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 56px;
+  box-shadow: var(--ms-shadow-4);
+  position: relative;
+  z-index: 200;
+}
+.header-logo {
+  width: 36px; height: 36px;
+  background: rgba(255,255,255,0.18);
+  border-radius: var(--ms-r);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; flex-shrink: 0;
+}
+.header-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.header-sub { font-size: 11px; color: rgba(255,255,255,0.72); margin-top: 1px; }
+.header-spacer { flex: 1; }
+.header-tag {
+  background: rgba(255,255,255,0.14);
+  color: rgba(255,255,255,0.86);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ── UPLOAD SECTION ──────────────────────────────────────────────── */
+.upload-section {
+  padding: 20px 24px 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.upload-card {
+  background: var(--ms-surface);
+  border: 1px solid var(--ms-stroke);
+  border-radius: var(--ms-r-lg);
+  padding: 16px 18px;
+  text-align: center;
+  cursor: pointer;
+  transition: box-shadow var(--ms-dur) var(--ms-ease), border-color var(--ms-dur) var(--ms-ease), background var(--ms-dur) var(--ms-ease);
+  position: relative;
+  box-shadow: var(--ms-shadow-2);
+}
+.upload-card:hover, .upload-card.drag-over {
+  border-color: var(--ms-brand);
+  box-shadow: var(--ms-shadow-4);
+  background: var(--ms-brand-xlight);
+}
+.upload-card.loaded {
+  border-color: var(--ms-green);
+  border-width: 1.5px;
+  background: var(--ms-green-bg);
+  box-shadow: none;
+}
+.upload-icon { font-size: 24px; margin-bottom: 6px; }
+.upload-title { font-weight: 700; font-size: 13px; color: var(--ms-text); }
+.upload-hint { font-size: 11px; color: var(--ms-text-secondary); margin-top: 2px; }
+.upload-filename { font-size: 11px; color: var(--ms-green); font-weight: 700; margin-top: 4px; }
+.upload-input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.upload-clear {
+  position: absolute; top: 8px; right: 10px;
+  background: none; border: none; cursor: pointer;
+  font-size: 14px; color: var(--ms-text-disabled);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  transition: background var(--ms-dur);
+}
+.upload-clear:hover { background: rgba(0,0,0,.06); color: var(--ms-text); }
+.upload-card:not(.loaded) .upload-clear { display: none; }
+.upload-card.loaded .upload-clear { display: flex; }
+.upload-desc { font-size: 11px; color: var(--ms-text-secondary); margin-top: 3px; line-height: 1.4; }
+
+/* ── TAB NAVIGATION ──────────────────────────────────────────────── */
+.tabs {
+  display: none;
+  background: var(--ms-surface);
+  border-bottom: 1px solid var(--ms-stroke);
+  padding: 0 24px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  gap: 0;
+}
+.tabs.visible { display: flex; }
+.tab-btn {
+  padding: 0 16px;
+  height: 52px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+  transition: border-color var(--ms-dur) var(--ms-ease), color var(--ms-dur);
+  display: flex; align-items: center; gap: 10px;
+  white-space: nowrap;
+  color: var(--ms-text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+}
+.tab-btn:hover:not(.disabled) { color: var(--ms-text); background: var(--ms-surface-alt); }
+.tab-btn.active { border-bottom-color: var(--ms-brand); color: var(--ms-brand); }
+.tab-btn.disabled { opacity: 0.4; cursor: not-allowed; }
+.tab-count {
+  background: var(--ms-surface-alt);
+  color: var(--ms-text-secondary);
+  font-size: 10px; font-weight: 700;
+  padding: 2px 7px; border-radius: 10px;
+  display: none;
+  border: 1px solid var(--ms-stroke);
+}
+.tab-btn.has-data .tab-count { display: inline-flex; }
+.tab-btn.active .tab-count { background: var(--ms-brand-light); color: var(--ms-brand); border-color: var(--ms-brand-light); }
+
+/* ── TAB CONTENT ─────────────────────────────────────────────────── */
+.tab-content { display: none; padding: 24px 24px 48px; max-width: 1400px; margin: 0 auto; }
+.tab-content.active { display: block; animation: fadeSlideIn var(--ms-dur) var(--ms-ease) both; }
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── EMPTY STATE ─────────────────────────────────────────────────── */
+.empty-state { text-align: center; padding: 56px 24px; color: var(--ms-text-secondary); }
+.empty-state h2 { font-size: 20px; margin-bottom: 8px; color: var(--ms-text); font-weight: 600; }
+.empty-state p { font-size: 14px; line-height: 1.6; max-width: 400px; margin: 0 auto; }
+.onboarding-steps { display: flex; flex-direction: column; gap: 10px; max-width: 520px; margin: 20px auto 0; text-align: left; }
+.onboard-step {
+  display: flex; gap: 14px; align-items: flex-start;
+  background: var(--ms-surface); border: 1px solid var(--ms-stroke);
+  border-radius: var(--ms-r-lg); padding: 14px 16px;
+  box-shadow: var(--ms-shadow-2);
+}
+.onboard-num {
+  width: 28px; height: 28px; background: var(--ms-brand); color: #fff;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; flex-shrink: 0;
+}
+.onboard-title { font-size: 13px; font-weight: 700; color: var(--ms-text); margin-bottom: 3px; }
+.onboard-desc { font-size: 12px; color: var(--ms-text-secondary); line-height: 1.5; }
+
+/* ── SECTIONS ────────────────────────────────────────────────────── */
+.section { margin-bottom: 28px; }
+.section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid var(--ms-stroke); }
+.section-title { font-size: 16px; font-weight: 700; color: var(--ms-text); }
+.section-badge { font-size: 11px; background: var(--ms-surface-alt); color: var(--ms-text-secondary); padding: 2px 8px; border-radius: 10px; border: 1px solid var(--ms-stroke); }
+
+/* ── KPI CARDS ───────────────────────────────────────────────────── */
+.kpi-grid { display: grid; gap: 12px; }
+.g2 { grid-template-columns: repeat(2, 1fr); }
+.g3 { grid-template-columns: repeat(3, 1fr); }
+.g4 { grid-template-columns: repeat(4, 1fr); }
+.g5 { grid-template-columns: repeat(5, 1fr); }
+.kpi-card {
+  background: var(--ms-surface);
+  border: 1px solid var(--ms-stroke);
+  border-radius: var(--ms-r-lg);
+  padding: 14px 16px;
+  box-shadow: var(--ms-shadow-2);
+  transition: box-shadow var(--ms-dur);
+}
+.kpi-card:hover { box-shadow: var(--ms-shadow-4); }
+.kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ms-text-secondary); margin-bottom: 6px; }
+.kpi-value { font-size: 28px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
+.kpi-sub { font-size: 11px; color: var(--ms-text-secondary); margin-top: 4px; }
+.kpi-bar { height: 3px; background: var(--ms-stroke); border-radius: 2px; margin-top: 10px; overflow: hidden; }
+.kpi-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s var(--ms-ease); }
+
+/* ── CHART CARDS ─────────────────────────────────────────────────── */
+.chart-grid { display: grid; gap: 14px; }
+.cg2 { grid-template-columns: 1fr 1fr; }
+.cg3 { grid-template-columns: 1fr 1fr 1fr; }
+.chart-card {
+  background: var(--ms-surface);
+  border: 1px solid var(--ms-stroke);
+  border-radius: var(--ms-r-lg);
+  padding: 14px 16px;
+  box-shadow: var(--ms-shadow-2);
+}
+.chart-title { font-size: 12px; font-weight: 700; color: var(--ms-text-secondary); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+.chart-wrap { position: relative; }
+.h180 { height: 180px; }
+.h220 { height: 220px; }
+
+/* ── BADGES ──────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 20px;
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.b-red { background: var(--ms-red-bg); color: var(--ms-red); border: 1px solid var(--ms-red-border); }
+.b-yellow { background: var(--ms-yellow-bg); color: var(--ms-yellow-text); border: 1px solid var(--ms-yellow-border); }
+.b-green { background: var(--ms-green-bg); color: var(--ms-green); border: 1px solid var(--ms-green-border); }
+.b-blue { background: var(--ms-brand-xlight); color: var(--ms-brand); border: 1px solid var(--ms-brand-light); }
+.b-purple { background: var(--ms-purple-bg); color: var(--ms-purple); border: 1px solid var(--ms-purple-border); }
+.b-teal { background: var(--ms-teal-bg); color: var(--ms-teal); border: 1px solid var(--ms-teal-border); }
+.b-gray { background: var(--ms-surface-alt); color: var(--ms-text-secondary); border: 1px solid var(--ms-stroke); }
+
+/* ── FILTER BAR ──────────────────────────────────────────────────── */
+.filter-bar {
+  display: flex; gap: 10px; align-items: center;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.filter-bar input[type=text] {
+  flex: 1; min-width: 200px;
+  border: 1px solid var(--ms-stroke-strong);
+  border-radius: var(--ms-r);
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--ms-surface);
+  color: var(--ms-text);
+  outline: none;
+  transition: border-color var(--ms-dur);
+}
+.filter-bar input[type=text]:focus { border-color: var(--ms-brand); }
+.filter-bar select {
+  border: 1px solid var(--ms-stroke-strong);
+  border-radius: var(--ms-r);
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--ms-surface);
+  color: var(--ms-text);
+  cursor: pointer;
+  outline: none;
+}
+.filter-count { font-size: 12px; color: var(--ms-text-secondary); white-space: nowrap; }
+
+/* ── INCIDENT TABLE ──────────────────────────────────────────────── */
+.table-wrap {
+  overflow-x: auto;
+  border-radius: var(--ms-r-lg);
+  border: 1px solid var(--ms-stroke);
+  box-shadow: var(--ms-shadow-2);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--ms-surface);
+  font-size: 13px;
+}
+th {
+  background: var(--ms-surface-alt);
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--ms-text-secondary);
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--ms-stroke);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+th:hover { background: var(--ms-stroke); }
+td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--ms-stroke);
+  vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tr.clickable:hover td { background: var(--ms-brand-xlight); cursor: pointer; }
+.sev-dot {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  font-size: 11px; font-weight: 800; flex-shrink: 0;
+}
+.sev-1 { background: var(--ms-red-bg); color: var(--ms-red); border: 1.5px solid var(--ms-red-border); }
+.sev-2 { background: var(--ms-yellow-bg); color: var(--ms-yellow-text); border: 1.5px solid var(--ms-yellow-border); }
+.sev-3 { background: var(--ms-brand-xlight); color: var(--ms-brand); border: 1.5px solid var(--ms-brand-light); }
+.sev-4 { background: var(--ms-surface-alt); color: var(--ms-text-secondary); border: 1.5px solid var(--ms-stroke-strong); }
+.opp-pip {
+  display: inline-flex; gap: 3px; align-items: center;
+}
+.pip {
+  width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block; flex-shrink: 0;
+}
+.pip-on { background: var(--ms-brand); }
+.pip-off { background: var(--ms-stroke-strong); }
+.pip-diag { background: var(--ms-teal); }
+.pip-doc { background: var(--ms-purple); }
+.pip-esc { background: var(--ms-yellow-dot); }
+.pip-trend { background: var(--ms-brand); }
+.title-cell { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.id-mono { font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 11px; color: var(--ms-text-secondary); }
+.no-results { text-align: center; padding: 40px; color: var(--ms-text-disabled); font-style: italic; }
+.opp-label { font-size: 10px; color: var(--ms-text-secondary); margin-top: 3px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── CLUSTER CARDS ───────────────────────────────────────────────── */
+.cluster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; }
+.cluster-card {
+  background: var(--ms-surface);
+  border: 1px solid var(--ms-stroke);
+  border-radius: var(--ms-r-lg);
+  padding: 16px 18px;
+  box-shadow: var(--ms-shadow-2);
+  transition: box-shadow var(--ms-dur);
+}
+.cluster-card:hover { box-shadow: var(--ms-shadow-4); }
+.cluster-card-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.cluster-priority-bar {
+  width: 4px; border-radius: 2px; flex-shrink: 0; align-self: stretch; min-height: 40px;
+}
+.pbar-high { background: var(--ms-red); }
+.pbar-medium { background: var(--ms-yellow-dot); }
+.pbar-low { background: var(--ms-green); }
+.cluster-name { font-size: 14px; font-weight: 700; color: var(--ms-text); line-height: 1.3; }
+.cluster-meta { font-size: 11px; color: var(--ms-text-secondary); margin-top: 2px; }
+.cluster-theme { font-size: 13px; color: var(--ms-text); margin-bottom: 10px; line-height: 1.5; }
+.cluster-action {
+  background: var(--ms-surface-alt); border: 1px solid var(--ms-stroke);
+  border-radius: var(--ms-r); padding: 8px 10px;
+  font-size: 12px; color: var(--ms-text); line-height: 1.5; margin-bottom: 10px;
+}
+.cluster-action-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ms-brand); margin-bottom: 3px; }
+.cluster-ids { font-size: 11px; color: var(--ms-text-secondary); font-family: 'Cascadia Code', 'Consolas', monospace; }
+
+/* ── DIAGNOSTIC CARDS ────────────────────────────────────────────── */
+.diag-card {
+  background: var(--ms-surface);
+  border: 1px solid var(--ms-stroke);
+  border-left: 4px solid var(--ms-teal);
+  border-radius: var(--ms-r-lg);
+  padding: 16px 18px;
+  box-shadow: var(--ms-shadow-2);
+  margin-bottom: 14px;
+}
+.diag-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.diag-name { font-size: 15px; font-weight: 700; color: var(--ms-teal); }
+.diag-incident { font-size: 11px; color: var(--ms-text-secondary); font-family: 'Cascadia Code', 'Consolas', monospace; }
+.diag-section-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ms-text-secondary); margin: 10px 0 5px; }
+.diag-desc { font-size: 13px; color: var(--ms-text); line-height: 1.6; }
+.steps-list { list-style: none; counter-reset: steps; }
+.steps-list li {
+  counter-increment: steps;
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 5px 0; font-size: 12px; color: var(--ms-text);
+}
+.steps-list li::before {
+  content: counter(steps);
+  background: var(--ms-teal-bg); color: var(--ms-teal);
+  border: 1px solid var(--ms-teal-border);
+  border-radius: 50%;
+  width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; flex-shrink: 0; margin-top: 1px;
+}
+.conn-badge, .product-badge, .other-diag-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 700;
+  border-radius: 20px; padding: 3px 10px;
+}
+.conn-badge {
+  background: var(--ms-teal-bg); color: var(--ms-teal);
+  border: 1px solid var(--ms-teal-border);
+}
+.product-badge {
+  background: #fff4e5; color: #b36a00;
+  border: 1px solid #f0c070;
+}
+.other-diag-badge {
+  background: var(--ms-bg-tertiary); color: var(--ms-text-secondary);
+  border: 1px solid var(--ms-border);
+}
+
+/* ── INCIDENT DETAIL CARD (inline row expansion) ─────────────────── */
+tr.inc-selected td { background: var(--ms-brand-xlight) !important; }
+tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
+.inc-detail-tr td {
+  padding: 0;
+  border-bottom: 2px solid var(--ms-brand);
+}
+.inc-detail-card {
+  padding: 20px 24px;
+  background: var(--ms-surface);
+  animation: detailIn 0.15s var(--ms-ease) both;
+}
+@keyframes detailIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.inc-detail-header {
+  display: flex; align-items: flex-start; gap: 12px;
+  margin-bottom: 16px; padding-bottom: 12px;
+  border-bottom: 1px solid var(--ms-stroke);
+}
+.inc-detail-title { font-size: 14px; font-weight: 700; color: var(--ms-text); line-height: 1.4; flex: 1; }
+.inc-detail-meta { font-size: 11px; color: var(--ms-text-secondary); margin-top: 3px; }
+.inc-detail-close {
+  flex-shrink: 0; background: none; border: 1px solid var(--ms-stroke-strong);
+  border-radius: var(--ms-r); padding: 4px 10px; font-size: 11px; cursor: pointer;
+  color: var(--ms-text-secondary); font-family: inherit; transition: all var(--ms-dur);
+}
+.inc-detail-close:hover { background: var(--ms-brand); color: #fff; border-color: var(--ms-brand); }
+.inc-detail-opps { display: flex; flex-direction: column; gap: 14px; }
+.inc-detail-opp {
+  background: var(--ms-surface-alt);
+  border: 1px solid var(--ms-stroke);
+  border-radius: var(--ms-r-lg);
+  padding: 14px 16px;
+}
+.cpop-section-label {
+  font-size: 10px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--ms-brand);
+  margin: 10px 0 5px;
+}
+.cpop-section-label:first-child { margin-top: 0; }
+.cpop-text { font-size: 12px; color: var(--ms-text); line-height: 1.6; }
+.cpop-empty { font-size: 12px; color: var(--ms-text-disabled); font-style: italic; }
+.cpop-opp-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 4px; }
+.cpop-opp-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+.cpop-opp-body { flex: 1; }
+.cpop-opp-title { font-size: 13px; font-weight: 700; color: var(--ms-text); }
+.cpop-opp-desc { font-size: 12px; color: var(--ms-text-secondary); margin-top: 4px; line-height: 1.5; }
+.cpop-conf { font-size: 10px; background: var(--ms-surface); border: 1px solid var(--ms-stroke); border-radius: 10px; padding: 1px 6px; color: var(--ms-text-secondary); }
+
+/* ── EXECUTIVE SUMMARY CARD ──────────────────────────────────────── */
+.exec-card {
+  background: linear-gradient(135deg, var(--ms-brand-xlight) 0%, #fff 100%);
+  border: 1px solid var(--ms-brand-light);
+  border-radius: var(--ms-r-lg);
+  padding: 18px 20px;
+  margin-bottom: 20px;
+  box-shadow: var(--ms-shadow-2);
+}
+.exec-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: var(--ms-brand); margin-bottom: 6px; }
+.exec-text { font-size: 14px; color: var(--ms-text); line-height: 1.7; }
+
+/* ── RESPONSIVE ──────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .upload-section { grid-template-columns: 1fr; }
+  .g4, .g5 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: 1fr; }
+  .cg2, .cg3 { grid-template-columns: 1fr; }
+  .cluster-grid { grid-template-columns: 1fr; }
+
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">🔍</div>
+  <div>
+    <div class="header-title">IcM Queue Analyzer</div>
+    <div class="header-sub">Incident Opportunity &amp; Diagnostic Intelligence</div>
+  </div>
+  <div class="header-spacer"></div>
+  <span class="header-tag">Internal Tool</span>
+</div>
+
+<!-- Upload Section -->
+<div class="upload-section">
+  <label class="upload-card" id="analysis-card"
+         ondragover="onDragOver(event,'analysis-card')" ondragleave="onDragLeave('analysis-card')"
+         ondrop="onDrop(event,'analysis')">
+    <input type="file" accept=".csv" class="upload-input" id="analysis-input" onchange="handleFile(event,'analysis')">
+    <div class="upload-icon" id="analysis-icon">📋</div>
+    <div class="upload-title">Incident Analysis</div>
+    <div class="upload-desc">Per-incident opportunity results</div>
+    <div class="upload-hint" id="analysis-hint">analysis_results_*.csv</div>
+    <div class="upload-filename" id="analysis-fname"></div>
+    <button class="upload-clear" onclick="clearFile(event,'analysis')">✕</button>
+  </label>
+  <label class="upload-card" id="cluster-card"
+         ondragover="onDragOver(event,'cluster-card')" ondragleave="onDragLeave('cluster-card')"
+         ondrop="onDrop(event,'cluster')">
+    <input type="file" accept=".csv" class="upload-input" id="cluster-input" onchange="handleFile(event,'cluster')">
+    <div class="upload-icon" id="cluster-icon">🗂</div>
+    <div class="upload-title">Cluster Report</div>
+    <div class="upload-desc">Semantic incident clusters &amp; PM actions</div>
+    <div class="upload-hint" id="cluster-hint">cluster_report_*.csv</div>
+    <div class="upload-filename" id="cluster-fname"></div>
+    <button class="upload-clear" onclick="clearFile(event,'cluster')">✕</button>
+  </label>
+  <label class="upload-card" id="summary-card"
+         ondragover="onDragOver(event,'summary-card')" ondragleave="onDragLeave('summary-card')"
+         ondrop="onDrop(event,'summary')">
+    <input type="file" accept=".csv" class="upload-input" id="summary-input" onchange="handleFile(event,'summary')">
+    <div class="upload-icon" id="summary-icon">📊</div>
+    <div class="upload-title">Run Summary</div>
+    <div class="upload-desc">Batch totals &amp; executive summary</div>
+    <div class="upload-hint" id="summary-hint">analysis_summary_*.csv</div>
+    <div class="upload-filename" id="summary-fname"></div>
+    <button class="upload-clear" onclick="clearFile(event,'summary')">✕</button>
+  </label>
+</div>
+
+<!-- Empty State -->
+<div id="empty-state" class="empty-state">
+  <h2>Drop your analysis CSVs to get started</h2>
+  <p>Run <code>python run_analysis.py --input incidents.csv</code> then load the output files above.</p>
+  <div class="onboarding-steps">
+    <div class="onboard-step">
+      <div class="onboard-num">1</div>
+      <div>
+        <div class="onboard-title">Load analysis_results_*.csv</div>
+        <div class="onboard-desc">Per-incident opportunity classifications — required for Incidents and Diagnostics tabs.</div>
+      </div>
+    </div>
+    <div class="onboard-step">
+      <div class="onboard-num">2</div>
+      <div>
+        <div class="onboard-title">Load cluster_report_*.csv (optional)</div>
+        <div class="onboard-desc">Semantic clusters of related incidents with PM action recommendations.</div>
+      </div>
+    </div>
+    <div class="onboard-step">
+      <div class="onboard-num">3</div>
+      <div>
+        <div class="onboard-title">Load analysis_summary_*.csv (optional)</div>
+        <div class="onboard-desc">Batch totals and executive summary for the Overview tab.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs" id="tabs">
+  <button class="tab-btn disabled" id="tab-overview" onclick="switchTab('overview')">
+    🏠 Overview <span class="tab-count" id="tab-overview-count"></span>
+  </button>
+  <button class="tab-btn disabled" id="tab-incidents" onclick="switchTab('incidents')">
+    📋 Incidents <span class="tab-count" id="tab-incidents-count"></span>
+  </button>
+  <button class="tab-btn disabled" id="tab-diagnostics" onclick="switchTab('diagnostics')">
+    🔬 Diagnostics <span class="tab-count" id="tab-diagnostics-count"></span>
+  </button>
+  <button class="tab-btn disabled" id="tab-clusters" onclick="switchTab('clusters')">
+    🗂 Clusters <span class="tab-count" id="tab-clusters-count"></span>
+  </button>
+</div>
+
+<!-- Tab: Overview -->
+<div id="content-overview" class="tab-content">
+  <div id="exec-summary-area"></div>
+  <div class="section">
+    <div class="section-header"><span class="section-title">Opportunity Summary</span></div>
+    <div class="kpi-grid g5" id="kpi-overview"></div>
+  </div>
+  <div class="section">
+    <div class="section-header"><span class="section-title">Distribution</span></div>
+    <div class="chart-grid cg2">
+      <div class="chart-card">
+        <div class="chart-title">Opportunity Type Breakdown</div>
+        <div class="chart-wrap h220"><canvas id="chart-opp-donut"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Severity Distribution</div>
+        <div class="chart-wrap h220"><canvas id="chart-sev-bar"></canvas></div>
+      </div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-header"><span class="section-title">Confidence Distribution</span></div>
+    <div class="chart-grid cg2">
+      <div class="chart-card">
+        <div class="chart-title">Diagnostic Opportunity Confidence</div>
+        <div class="chart-wrap h180"><canvas id="chart-diag-conf"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Documentation Gap Confidence</div>
+        <div class="chart-wrap h180"><canvas id="chart-doc-conf"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tab: Incidents -->
+<div id="content-incidents" class="tab-content">
+  <div class="filter-bar">
+    <input type="text" id="inc-search" placeholder="Search incidents by ID, title, team…" oninput="renderIncidents()">
+    <select id="inc-f-sev" onchange="renderIncidents()">
+      <option value="">All severities</option>
+      <option value="1">Sev 1</option>
+      <option value="2">Sev 2</option>
+      <option value="3">Sev 3</option>
+      <option value="4">Sev 4</option>
+    </select>
+    <select id="inc-f-opp" onchange="renderIncidents()">
+      <option value="">All opportunities</option>
+      <option value="trend">Trend detected</option>
+      <option value="diag">Diagnostic opportunity</option>
+      <option value="doc">Documentation gap</option>
+      <option value="escalation">Escalation opportunity</option>
+      <option value="any">Any opportunity</option>
+    </select>
+    <span class="filter-count" id="inc-count"></span>
+  </div>
+  <div style="font-size:12px;color:var(--ms-text-secondary);margin-bottom:8px;display:flex;align-items:center;gap:6px">
+    <span style="font-size:14px">👆</span> Click any row to see the full analysis — opportunity descriptions, reasoning, and recommended actions.
+  </div>
+  <div class="table-wrap">
+    <table id="inc-table">
+      <thead>
+        <tr>
+          <th onclick="sortIncidents('incident_id')">ID</th>
+          <th onclick="sortIncidents('severity')">Sev</th>
+          <th onclick="sortIncidents('title')">Title</th>
+          <th onclick="sortIncidents('owning_team')">Team</th>
+          <th>Opportunities</th>
+          <th onclick="sortIncidents('processing_time_seconds')">Time (s)</th>
+        </tr>
+      </thead>
+      <tbody id="inc-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Tab: Diagnostics -->
+<div id="content-diagnostics" class="tab-content">
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Diagnostic Build Opportunities</span>
+      <span class="section-badge">Automated diagnostic tests that could be built</span>
+    </div>
+    <div class="filter-bar">
+      <input type="text" id="diag-search" placeholder="Search by incident or diagnostic name…" oninput="renderDiagnostics()">
+      <select id="diag-f-type" onchange="renderDiagnostics()">
+        <option value="">All types</option>
+        <option value="m365rca_new_diagnostic">New M365RCA Diagnostic</option>
+        <option value="m365rca_new_scenario">New Scenario (extend existing)</option>
+        <option value="product_improvement">Product Improvement</option>
+        <option value="other_diagnostic">Other Diagnostic</option>
+      </select>
+      <span class="filter-count" id="diag-count"></span>
+    </div>
+    <div id="diag-list"></div>
+  </div>
+</div>
+
+<!-- Tab: Clusters -->
+<div id="content-clusters" class="tab-content">
+  <div class="filter-bar">
+    <input type="text" id="cluster-search" placeholder="Search clusters…" oninput="renderClusters()">
+    <select id="cluster-f-prio" onchange="renderClusters()">
+      <option value="">All priorities</option>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+    </select>
+    <span class="filter-count" id="cluster-count"></span>
+  </div>
+  <div id="cluster-grid" class="cluster-grid"></div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════
+const state = {
+  analysisData: null,
+  clusterData: null,
+  summaryData: null,
+  activeTab: null,
+  incSort: { col: 'severity', dir: 1 },
+};
+const charts = {};
+
+function bool(v) { return String(v).toLowerCase() === 'true'; }
+function num(v) { return parseFloat(v) || 0; }
+function pct(v, total) { return total ? Math.round(num(v) / total * 100) : 0; }
+
+// ══════════════════════════════════════════════════════════
+// UPLOAD HANDLERS
+// ══════════════════════════════════════════════════════════
+function onDragOver(e, id) { e.preventDefault(); document.getElementById(id).classList.add('drag-over'); }
+function onDragLeave(id) { document.getElementById(id).classList.remove('drag-over'); }
+function onDrop(e, type) {
+  e.preventDefault();
+  const cardId = type + '-card';
+  document.getElementById(cardId).classList.remove('drag-over');
+  const f = e.dataTransfer.files[0]; if (f) readFile(f, type);
+}
+function handleFile(e, type) { if (e.target.files[0]) readFile(e.target.files[0], type); }
+function readFile(file, type) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const text = e.target.result;
+      if (type === 'analysis') {
+        state.analysisData = parseAnalysis(text);
+        setLoaded('analysis', file.name, state.analysisData.length + ' incidents');
+        renderAll();
+      } else if (type === 'cluster') {
+        state.clusterData = parseCluster(text);
+        setLoaded('cluster', file.name, state.clusterData.length + ' clusters');
+        renderClusters();
+      } else {
+        state.summaryData = parseSummary(text);
+        setLoaded('summary', file.name, 'run summary');
+        renderOverview();
+      }
+      updateTabs();
+    } catch(err) { alert('Error parsing CSV: ' + err.message); console.error(err); }
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+function setLoaded(type, fname, sub) {
+  document.getElementById(type + '-card').classList.add('loaded');
+  document.getElementById(type + '-icon').textContent = '✅';
+  document.getElementById(type + '-fname').textContent = fname;
+  document.getElementById(type + '-hint').textContent = sub;
+}
+function clearFile(e, type) {
+  e.preventDefault(); e.stopPropagation();
+  const icons = { analysis: '📋', cluster: '🗂', summary: '📊' };
+  const hints = { analysis: 'analysis_results_*.csv', cluster: 'cluster_report_*.csv', summary: 'analysis_summary_*.csv' };
+  document.getElementById(type + '-card').classList.remove('loaded');
+  document.getElementById(type + '-icon').textContent = icons[type];
+  document.getElementById(type + '-fname').textContent = '';
+  document.getElementById(type + '-hint').textContent = hints[type];
+  document.getElementById(type + '-input').value = '';
+  if (type === 'analysis') state.analysisData = null;
+  else if (type === 'cluster') state.clusterData = null;
+  else state.summaryData = null;
+  updateTabs();
+  renderAll();
+}
+
+// ══════════════════════════════════════════════════════════
+// CSV PARSERS
+// ══════════════════════════════════════════════════════════
+function parseAnalysis(text) {
+  const r = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false });
+  return r.data.map(row => {
+    row._trendOn = bool(row.trend_detected);
+    row._diagOn = bool(row.diag_gap_detected);
+    row._docOn = bool(row.doc_gap_detected);
+    row._escOn = bool(row.escalation_detected);
+    row._diagType = row.diagnostic_type || 'other_diagnostic';
+    row._sev = parseInt(row.severity) || 4;
+    row._steps = (row.steps_to_automate || '').split(';').map(s => s.trim()).filter(Boolean);
+    row._apiTargets = (row.m365rca_api_targets || '').split(';').map(s => s.trim()).filter(Boolean);
+    row._outline = (row.suggested_article_outline || '').split(';').map(s => s.trim()).filter(Boolean);
+    return row;
+  });
+}
+function parseCluster(text) {
+  const r = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false });
+  return r.data.map(row => {
+    row._ids = (row.incident_ids || '').split(';').map(s => s.trim()).filter(Boolean);
+    row._domTypes = (row.dominant_opportunity_types || '').split(';').map(s => s.trim()).filter(Boolean);
+    row._count = parseInt(row.incident_count) || 0;
+    return row;
+  }).sort((a, b) => {
+    const prio = { high: 0, medium: 1, low: 2 };
+    return (prio[a.priority] ?? 1) - (prio[b.priority] ?? 1);
+  });
+}
+function parseSummary(text) {
+  const r = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false });
+  return r.data[0] || {};
+}
+
+// ══════════════════════════════════════════════════════════
+// TAB MANAGEMENT
+// ══════════════════════════════════════════════════════════
+function updateTabs() {
+  const hasA = !!state.analysisData, hasC = !!state.clusterData, hasS = !!state.summaryData;
+  const hasSome = hasA || hasC || hasS;
+  document.getElementById('empty-state').style.display = hasSome ? 'none' : 'block';
+  document.getElementById('tabs').classList.toggle('visible', hasSome);
+
+  const overviewOk = hasA || hasS;
+  setTabState('overview', overviewOk);
+  setTabState('incidents', hasA);
+  setTabState('diagnostics', hasA);
+  setTabState('clusters', hasC);
+
+  if (!state.activeTab) {
+    if (overviewOk) switchTab('overview');
+    else if (hasA) switchTab('incidents');
+    else if (hasC) switchTab('clusters');
+  }
+}
+function setTabState(name, enabled) {
+  const btn = document.getElementById('tab-' + name);
+  btn.classList.toggle('disabled', !enabled);
+  btn.classList.toggle('has-data', enabled);
+}
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  const btn = document.getElementById('tab-' + name);
+  if (btn.classList.contains('disabled')) return;
+  btn.classList.add('active');
+  document.getElementById('content-' + name).classList.add('active');
+  state.activeTab = name;
+}
+
+// ══════════════════════════════════════════════════════════
+// RENDER ALL
+// ══════════════════════════════════════════════════════════
+function renderAll() {
+  renderOverview();
+  renderIncidents();
+  renderDiagnostics();
+}
+
+// ══════════════════════════════════════════════════════════
+// OVERVIEW
+// ══════════════════════════════════════════════════════════
+function renderOverview() {
+  const data = state.analysisData || [];
+  const summary = state.summaryData || {};
+  const total = data.length || parseInt(summary.total_incidents) || 0;
+  const trend = data.length ? data.filter(r => r._trendOn).length : (parseInt(summary.trend_detected_count) || 0);
+  const diag = data.length ? data.filter(r => r._diagOn).length : (parseInt(summary.diag_gap_count) || 0);
+  const doc = data.length ? data.filter(r => r._docOn).length : (parseInt(summary.doc_gap_count) || 0);
+  const esc = data.length ? data.filter(r => r._escOn).length : (parseInt(summary.escalation_count) || 0);
+
+  // Executive summary
+  const execArea = document.getElementById('exec-summary-area');
+  execArea.innerHTML = '';
+  const execText = summary.executive_summary || '';
+  if (execText) {
+    execArea.innerHTML = `<div class="exec-card">
+      <div class="exec-label">Executive Summary</div>
+      <div class="exec-text">${esc_html(execText)}</div>
+    </div>`;
+  }
+
+  // KPI cards
+  const kpiEl = document.getElementById('kpi-overview');
+  kpiEl.innerHTML = `
+    ${kpiCard('Total Incidents', total, '', '#0078d4', 100)}
+    ${kpiCard('Trend Detected', trend, pct(trend,total)+'% of incidents', '#0078d4', pct(trend,total))}
+    ${kpiCard('Diagnostic Opportunity', diag, pct(diag,total)+'% of incidents', '#038387', pct(diag,total))}
+    ${kpiCard('Documentation Gap', doc, pct(doc,total)+'% of incidents', '#5c2d91', pct(doc,total))}
+    ${kpiCard('Escalation Opportunity', esc, pct(esc,total)+'% of incidents', '#ffb900', pct(esc,total))}
+  `;
+
+  // Charts
+  renderChart('chart-opp-donut', 'doughnut', {
+    labels: ['Trend', 'Diagnostic', 'Doc Gap', 'Escalation'],
+    datasets: [{
+      data: [trend, diag, doc, esc],
+      backgroundColor: ['#0078d4','#038387','#5c2d91','#ffb900'],
+      borderWidth: 2, borderColor: '#fff',
+    }]
+  }, { plugins: { legend: { position: 'right', labels: { font: { size: 11 } } } } });
+
+  if (data.length) {
+    const sevCounts = [1,2,3,4].map(s => data.filter(r => r._sev === s).length);
+    renderChart('chart-sev-bar', 'bar', {
+      labels: ['Sev 1', 'Sev 2', 'Sev 3', 'Sev 4'],
+      datasets: [{
+        data: sevCounts,
+        backgroundColor: ['#c50f1f','#ffb900','#0078d4','#c8c6c4'],
+        borderRadius: 4,
+      }]
+    }, {
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+    });
+
+    // Confidence histograms
+    renderConfHist('chart-diag-conf', data.filter(r => r._diagOn).map(r => num(r.diag_gap_confidence)), '#038387');
+    renderConfHist('chart-doc-conf', data.filter(r => r._docOn).map(r => num(r.doc_gap_confidence)), '#5c2d91');
+  }
+}
+
+function kpiCard(label, value, sub, color, barPct) {
+  return `<div class="kpi-card">
+    <div class="kpi-label">${label}</div>
+    <div class="kpi-value" style="color:${color}">${value}</div>
+    <div class="kpi-sub">${sub}</div>
+    <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${Math.min(barPct,100)}%;background:${color}"></div></div>
+  </div>`;
+}
+
+function renderConfHist(id, values, color) {
+  const buckets = [0, 0, 0, 0, 0]; // 0-0.2, 0.2-0.4, 0.4-0.6, 0.6-0.8, 0.8-1.0
+  values.forEach(v => { const i = Math.min(Math.floor(v / 0.2), 4); buckets[i]++; });
+  renderChart(id, 'bar', {
+    labels: ['0-0.2', '0.2-0.4', '0.4-0.6', '0.6-0.8', '0.8-1.0'],
+    datasets: [{ data: buckets, backgroundColor: color, borderRadius: 3 }]
+  }, { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } });
+}
+
+function renderChart(id, type, data, optionsExtra) {
+  if (charts[id]) { charts[id].destroy(); }
+  const canvas = document.getElementById(id);
+  if (!canvas) return;
+  charts[id] = new Chart(canvas, {
+    type,
+    data,
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { font: { family: "'Segoe UI', sans-serif", size: 11 } } } },
+      ...optionsExtra,
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// INCIDENTS TAB
+// ══════════════════════════════════════════════════════════
+let _incFiltered = [];
+
+function sortIncidents(col) {
+  if (state.incSort.col === col) state.incSort.dir *= -1;
+  else { state.incSort.col = col; state.incSort.dir = 1; }
+  renderIncidents();
+}
+
+function renderIncidents() {
+  closeDetail();
+  const data = state.analysisData || [];
+  const q = (document.getElementById('inc-search')?.value || '').toLowerCase();
+  const sevF = document.getElementById('inc-f-sev')?.value || '';
+  const oppF = document.getElementById('inc-f-opp')?.value || '';
+
+  _incFiltered = data.filter(r => {
+    if (sevF && String(r._sev) !== sevF) return false;
+    if (oppF === 'trend' && !r._trendOn) return false;
+    if (oppF === 'diag' && !r._diagOn) return false;
+    if (oppF === 'doc' && !r._docOn) return false;
+    if (oppF === 'escalation' && !r._escOn) return false;
+    if (oppF === 'any' && !r._trendOn && !r._diagOn && !r._docOn && !r._escOn) return false;
+    if (q) {
+      const haystack = [r.incident_id, r.title, r.owning_team, r.component_path].join(' ').toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const { col, dir } = state.incSort;
+  _incFiltered.sort((a, b) => {
+    let av = a[col] || '', bv = b[col] || '';
+    if (col === 'severity') { av = parseInt(av) || 99; bv = parseInt(bv) || 99; }
+    if (col === 'processing_time_seconds') { av = num(av); bv = num(bv); }
+    if (av < bv) return -dir; if (av > bv) return dir; return 0;
+  });
+
+  document.getElementById('inc-count').textContent = `${_incFiltered.length} of ${data.length}`;
+
+  const tbody = document.getElementById('inc-tbody');
+  if (!_incFiltered.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="no-results">No incidents match the current filters.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = _incFiltered.slice(0, 500).map((r, i) => `
+    <tr class="clickable" onclick="toggleIncDetail(${i}, this)">
+      <td><span class="id-mono">${esc_html(r.incident_id)}</span></td>
+      <td><span class="sev-dot sev-${r._sev}">${r._sev}</span></td>
+      <td class="title-cell" title="${esc_html(r.title)}">${esc_html(r.title)}</td>
+      <td style="font-size:12px;color:var(--ms-text-secondary);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc_html(r.owning_team || '')}</td>
+      <td>
+        <div class="opp-pip">
+          <span class="pip ${r._trendOn ? 'pip-trend' : 'pip-off'}" title="${r._trendOn ? 'Trend: ' + esc_html((r.trend_description||'').substring(0,100)) : 'Trend not detected'}"></span>
+          <span class="pip ${r._diagOn ? 'pip-diag' : 'pip-off'}" title="${r._diagOn ? 'Diagnostic: ' + esc_html(r.suggested_diagnostic_name||'opportunity') : 'Diagnostic not detected'}"></span>
+          <span class="pip ${r._docOn ? 'pip-doc' : 'pip-off'}" title="${r._docOn ? (r.wiki_covers_topic === 'True' ? 'TSG found: ' + esc_html(r.wiki_top_result_path||'') : 'Doc gap: ' + esc_html((r.doc_gap_description||'').substring(0,100))) : 'Doc gap not detected'}"></span>
+          <span class="pip ${r._escOn ? 'pip-esc' : 'pip-off'}" title="${r._escOn ? 'Escalation → ' + esc_html(r.escalation_target||r.escalation_description||'opportunity') : 'Escalation not detected'}"></span>
+        </div>
+        ${incOppLabel(r)}
+      </td>
+      <td style="font-size:12px;color:var(--ms-text-secondary)">${num(r.processing_time_seconds).toFixed(1)}s</td>
+    </tr>
+  `).join('');
+}
+
+function incOppLabel(r) {
+  if (r._diagOn && r.suggested_diagnostic_name) return `<div class="opp-label">🔬 ${esc_html(r.suggested_diagnostic_name)}</div>`;
+  if (r._docOn && r.wiki_top_result_path) return `<div class="opp-label">📄 TSG: ${esc_html(r.wiki_top_result_path.split('/').pop() || r.wiki_top_result_path)}</div>`;
+  if (r._docOn && r.suggested_article_title) return `<div class="opp-label">📚 ${esc_html(r.suggested_article_title)}</div>`;
+  if (r._trendOn && r.trend_description) return `<div class="opp-label">📈 ${esc_html(r.trend_description.substring(0, 50))}</div>`;
+  if (r._escOn) return `<div class="opp-label">⚠️ ${esc_html(r.escalation_target || 'Escalation')}</div>`;
+  return '';
+}
+
+// ── LEGEND for pips ──
+function pipLegend() {
+  return `<div style="display:flex;gap:12px;font-size:11px;color:var(--ms-text-secondary);margin-bottom:8px;flex-wrap:wrap">
+    <span><span class="pip pip-trend" style="display:inline-block;margin-right:4px"></span>Trend</span>
+    <span><span class="pip pip-diag" style="display:inline-block;margin-right:4px"></span>Diagnostic</span>
+    <span><span class="pip pip-doc" style="display:inline-block;margin-right:4px"></span>Doc Gap</span>
+    <span><span class="pip pip-esc" style="display:inline-block;margin-right:4px"></span>Escalation</span>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════
+// INLINE DETAIL CARD
+// ══════════════════════════════════════════════════════════
+let _detailOpenIdx = null;
+
+function toggleIncDetail(filteredIdx, tr) {
+  // Clicking the same row closes the card
+  if (_detailOpenIdx === filteredIdx) {
+    closeDetail();
+    return;
+  }
+  closeDetail();
+  _detailOpenIdx = filteredIdx;
+  tr.classList.add('inc-selected');
+
+  const r = _incFiltered[filteredIdx];
+  const detailTr = document.createElement('tr');
+  detailTr.id = 'inc-detail-tr';
+  detailTr.className = 'inc-detail-tr';
+  const td = document.createElement('td');
+  td.colSpan = 6;
+  td.innerHTML = buildDetailCard(r);
+  detailTr.appendChild(td);
+  tr.after(detailTr);
+  detailTr.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeDetail() {
+  const existing = document.getElementById('inc-detail-tr');
+  if (existing) existing.remove();
+  document.querySelectorAll('tr.inc-selected').forEach(r => r.classList.remove('inc-selected'));
+  _detailOpenIdx = null;
+}
+
+function buildDetailCard(r) {
+  let oppsHtml = '';
+
+  if (r._trendOn) {
+    let body = oppRow('📈', 'Trend Detected', r.trend_description, r.trend_confidence);
+    if (r.trend_suggested_query) {
+      body += `<div style="margin-top:8px;font-size:12px;color:var(--ms-text-secondary)">Suggested IcM query: <code style="background:var(--ms-surface);border:1px solid var(--ms-stroke);padding:2px 5px;border-radius:3px">${esc_html(r.trend_suggested_query)}</code></div>`;
+    }
+    if (r.trend_reasoning) body += reasoningBlock(r.trend_reasoning);
+    oppsHtml += `<div class="inc-detail-opp">${body}</div>`;
+  }
+
+  if (r._diagOn) {
+    const steps = r._steps.length ? `<ul class="steps-list" style="margin-top:10px">${r._steps.map(s=>`<li>${esc_html(s)}</li>`).join('')}</ul>` : '';
+    let body = oppRow('🔬', 'Diagnostic Opportunity: ' + (r.suggested_diagnostic_name || 'Build Opportunity'), r.diag_opportunity_description, r.diag_gap_confidence);
+    body += `<div style="margin-top:8px">${diagTypeBadge(r._diagType)}</div>`;
+    if (steps) body += steps;
+    if (r._apiTargets && r._apiTargets.length) {
+      body += `<div style="margin-top:8px;font-size:12px;color:var(--ms-text-secondary)"><strong>API targets:</strong> ${r._apiTargets.map(t=>`<code style="background:var(--ms-surface);border:1px solid var(--ms-stroke);padding:2px 5px;border-radius:3px">${esc_html(t)}</code>`).join(' ')}</div>`;
+    }
+    if (r.diag_reasoning) body += reasoningBlock(r.diag_reasoning);
+    oppsHtml += `<div class="inc-detail-opp">${body}</div>`;
+  }
+
+  if (r._docOn) {
+    let body = oppRow('📚', 'Documentation Gap', r.doc_gap_description, r.doc_gap_confidence);
+    if (r.suggested_article_title) {
+      body += `<div style="margin-top:8px;font-size:12px;color:var(--ms-text-secondary)">Suggested article: <em>${esc_html(r.suggested_article_title)}</em></div>`;
+    }
+    if (r.wiki_searched === 'True') {
+      const covers = r.wiki_covers_topic === 'True';
+      body += `<div style="margin-top:8px"><span class="badge ${covers ? 'b-green' : 'b-red'}">${covers ? '📄 TSG found' : 'Wiki gap confirmed'}</span></div>`;
+      if (covers && r.wiki_top_result_path) {
+        body += `<div style="margin-top:6px;font-size:12px;color:var(--ms-text-secondary)">Path: <code style="background:var(--ms-surface);border:1px solid var(--ms-stroke);padding:2px 5px;border-radius:3px">${esc_html(r.wiki_top_result_path)}</code></div>`;
+      }
+    }
+    if (r.doc_reasoning) body += reasoningBlock(r.doc_reasoning);
+    oppsHtml += `<div class="inc-detail-opp">${body}</div>`;
+  }
+
+  if (r._escOn) {
+    let body = oppRow('⚠️', 'Escalation Opportunity', r.escalation_description, r.escalation_confidence);
+    if (r.escalation_target) {
+      body += `<div style="margin-top:8px;font-size:12px;color:var(--ms-text-secondary)">Target: <strong>${esc_html(r.escalation_target)}</strong></div>`;
+    }
+    if (r.escalation_recommended_action) {
+      body += `<div style="margin-top:10px;background:var(--ms-surface);border:1px solid var(--ms-stroke);border-radius:var(--ms-r);padding:8px 10px">
+        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:var(--ms-brand);margin-bottom:4px">Recommended Action</div>
+        <div style="font-size:12px;color:var(--ms-text);line-height:1.5">${esc_html(r.escalation_recommended_action)}</div>
+      </div>`;
+    }
+    if (r.escalation_reasoning) body += reasoningBlock(r.escalation_reasoning);
+    oppsHtml += `<div class="inc-detail-opp">${body}</div>`;
+  }
+
+  if (!oppsHtml) {
+    oppsHtml = `<div class="cpop-empty">No opportunities detected for this incident.</div>`;
+  }
+
+  if (r.error) {
+    oppsHtml += `<div class="inc-detail-opp" style="border-color:var(--ms-red-border)">
+      <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--ms-red);margin-bottom:6px">Processing Error</div>
+      <div style="font-size:12px;color:var(--ms-red)">${esc_html(r.error)}</div>
+    </div>`;
+  }
+
+  return `<div class="inc-detail-card">
+    <div class="inc-detail-header">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span class="id-mono">${esc_html(r.incident_id)}</span>
+          <span class="sev-dot sev-${r._sev}">${r._sev}</span>
+          <span style="font-size:11px;color:var(--ms-text-secondary)">${esc_html(r.owning_team || '')}</span>
+        </div>
+        <div class="inc-detail-title">${esc_html(r.title)}</div>
+        ${r.component_path ? `<div class="inc-detail-meta">${esc_html(r.component_path)}</div>` : ''}
+      </div>
+      <button class="inc-detail-close" onclick="closeDetail()">✕ Close</button>
+    </div>
+    <div class="inc-detail-opps">${oppsHtml}</div>
+  </div>`;
+}
+
+function reasoningBlock(reasoning) {
+  return `<div style="margin-top:12px;background:var(--ms-brand-xlight);border-left:3px solid var(--ms-brand);border-radius:0 var(--ms-r) var(--ms-r) 0;padding:8px 12px">
+    <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:var(--ms-brand);margin-bottom:5px">Why this was flagged</div>
+    <div style="font-size:12px;color:var(--ms-text);line-height:1.6">${esc_html(reasoning)}</div>
+  </div>`;
+}
+
+function oppRow(icon, title, desc, conf) {
+  const confNum = num(conf);
+  return `<div class="cpop-opp-row">
+    <div class="cpop-opp-icon">${icon}</div>
+    <div class="cpop-opp-body">
+      <div class="cpop-opp-title">${esc_html(title)} <span class="cpop-conf">${(confNum*100).toFixed(0)}% confidence</span></div>
+      <div class="cpop-opp-desc">${esc_html(desc || '')}</div>
+    </div>
+  </div>`;
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+
+// ══════════════════════════════════════════════════════════
+// DIAGNOSTICS TAB
+// ══════════════════════════════════════════════════════════
+function diagTypeBadge(type) {
+  if (type === 'm365rca_new_diagnostic') return `<span class="conn-badge">🔬 New M365RCA Diagnostic</span>`;
+  if (type === 'm365rca_new_scenario')   return `<span class="conn-badge" style="background:#e6f4ff;color:#0078d4;border-color:#b3d9ff">➕ New Scenario</span>`;
+  if (type === 'product_improvement')    return `<span class="product-badge">🐛 Product Improvement</span>`;
+  return `<span class="other-diag-badge">🛠 Other Diagnostic</span>`;
+}
+
+function renderDiagnostics() {
+  const data = (state.analysisData || []).filter(r => r._diagOn);
+  const q = (document.getElementById('diag-search')?.value || '').toLowerCase();
+  const typeF = document.getElementById('diag-f-type')?.value || '';
+
+  const filtered = data.filter(r => {
+    if (typeF && r._diagType !== typeF) return false;
+    if (q) {
+      const hay = [r.incident_id, r.title, r.suggested_diagnostic_name, r.diag_opportunity_description].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => num(b.diag_gap_confidence) - num(a.diag_gap_confidence));
+
+  document.getElementById('diag-count').textContent = `${filtered.length} diagnostic opportunities`;
+
+  const listEl = document.getElementById('diag-list');
+  if (!filtered.length) {
+    listEl.innerHTML = `<div style="text-align:center;padding:40px;color:var(--ms-text-disabled);font-style:italic">No diagnostic opportunities match the current filters.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.slice(0, 200).map(r => {
+    const steps = r._steps.length
+      ? `<div class="diag-section-label">Steps to Automate</div>
+         <ul class="steps-list">${r._steps.map(s => `<li>${esc_html(s)}</li>`).join('')}</ul>`
+      : '';
+    const connBadge = diagTypeBadge(r._diagType);
+    const conf = num(r.diag_gap_confidence);
+    const scenarioBlock = (r._diagType === 'm365rca_new_scenario' && r.existing_test_name)
+      ? `<div class="diag-section-label">Extends Existing Test</div>
+         <div class="diag-desc" style="font-family:monospace;font-size:12px">${esc_html(r.existing_test_name)}</div>
+         ${r.new_scenario_description ? `<div class="diag-section-label">New Scenario / Branch</div><div class="diag-desc">${esc_html(r.new_scenario_description)}</div>` : ''}`
+      : '';
+
+    const apiTargetsBlock = (r._apiTargets && r._apiTargets.length)
+      ? `<div class="diag-section-label">API / Endpoint Targets</div>
+         <div class="diag-desc" style="font-family:monospace;font-size:11px">${r._apiTargets.map(t => esc_html(t)).join('<br>')}</div>`
+      : '';
+    const whyBlock = r.diag_reasoning
+      ? `<div class="diag-section-label" style="color:var(--ms-text-disabled)">Why</div>
+         <div class="diag-desc" style="color:var(--ms-text-secondary);font-style:italic;font-size:12px">${esc_html(r.diag_reasoning)}</div>`
+      : '';
+
+    return `<div class="diag-card">
+      <div class="diag-card-header">
+        <span class="diag-name">${esc_html(r.suggested_diagnostic_name || 'Diagnostic Opportunity')}</span>
+        <span class="id-mono">#${esc_html(r.incident_id)}</span>
+        <span class="sev-dot sev-${r._sev}">${r._sev}</span>
+        <span class="badge b-teal">${(conf*100).toFixed(0)}% confidence</span>
+        ${connBadge}
+      </div>
+      <div class="diag-section-label">Opportunity</div>
+      <div class="diag-desc">${esc_html(r.diag_opportunity_description || '')}</div>
+      ${scenarioBlock}
+      ${steps}
+      ${apiTargetsBlock}
+      ${whyBlock}
+      <div style="margin-top:10px;font-size:11px;color:var(--ms-text-secondary)">
+        Incident: <em>${esc_html(r.title)}</em>
+        ${r.owning_team ? ` · Team: <strong>${esc_html(r.owning_team)}</strong>` : ''}
+        ${r.component_path ? ` · ${esc_html(r.component_path)}` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════
+// CLUSTERS TAB
+// ══════════════════════════════════════════════════════════
+function renderClusters() {
+  const data = state.clusterData || [];
+  const q = (document.getElementById('cluster-search')?.value || '').toLowerCase();
+  const prioF = document.getElementById('cluster-f-prio')?.value || '';
+
+  const filtered = data.filter(r => {
+    if (prioF && r.priority !== prioF) return false;
+    if (q) {
+      const hay = [r.cluster_name, r.theme, r.recommended_pm_action, r.evidence_summary].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  document.getElementById('cluster-count').textContent = `${filtered.length} clusters`;
+
+  const grid = document.getElementById('cluster-grid');
+  if (!filtered.length) {
+    grid.innerHTML = `<div style="text-align:center;padding:40px;color:var(--ms-text-disabled);font-style:italic;grid-column:1/-1">No clusters match the current filters.</div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map(c => {
+    const prio = c.priority || 'medium';
+    const prioClass = prio === 'high' ? 'b-red' : prio === 'medium' ? 'b-yellow' : 'b-green';
+    const pbarClass = 'pbar-' + prio;
+    const typesBadges = c._domTypes.map(t => {
+      const labels = { trend_detection: 'Trend', diagnostic_gap: 'Diagnostic', documentation_gap: 'Doc Gap', escalation_opportunity: 'Escalation' };
+      const cls = { trend_detection: 'b-blue', diagnostic_gap: 'b-teal', documentation_gap: 'b-purple', escalation_opportunity: 'b-yellow' };
+      return `<span class="badge ${cls[t] || 'b-gray'}">${labels[t] || t}</span>`;
+    }).join(' ');
+
+    return `<div class="cluster-card">
+      <div class="cluster-card-header">
+        <div class="cluster-priority-bar ${pbarClass}"></div>
+        <div>
+          <div class="cluster-name">${esc_html(c.cluster_name)}</div>
+          <div class="cluster-meta">
+            <span class="badge ${prioClass}">${prio.toUpperCase()}</span>
+            &nbsp;${c.incident_count || c._ids.length} incidents
+          </div>
+        </div>
+      </div>
+      <div class="cluster-theme">${esc_html(c.theme || '')}</div>
+      ${c.recommended_pm_action ? `<div class="cluster-action">
+        <div class="cluster-action-label">PM Action</div>
+        ${esc_html(c.recommended_pm_action)}
+      </div>` : ''}
+      ${typesBadges ? `<div style="margin-bottom:8px;display:flex;gap:4px;flex-wrap:wrap">${typesBadges}</div>` : ''}
+      ${c.evidence_summary ? `<div style="font-size:12px;color:var(--ms-text-secondary);margin-bottom:8px;line-height:1.5">${esc_html(c.evidence_summary)}</div>` : ''}
+      ${c._ids.length ? `<div class="cluster-ids">${c._ids.slice(0,10).join(', ')}${c._ids.length > 10 ? ` … +${c._ids.length-10} more` : ''}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════
+// UTILITIES
+// ══════════════════════════════════════════════════════════
+function esc_html(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Init
+updateTabs();
+</script>
+</body>
+</html>
