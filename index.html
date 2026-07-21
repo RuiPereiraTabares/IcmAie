@@ -267,6 +267,7 @@ body {
 .b-purple { background: var(--ms-purple-bg); color: var(--ms-purple); border: 1px solid var(--ms-purple-border); }
 .b-teal { background: var(--ms-teal-bg); color: var(--ms-teal); border: 1px solid var(--ms-teal-border); }
 .b-gray { background: var(--ms-surface-alt); color: var(--ms-text-secondary); border: 1px solid var(--ms-stroke); }
+.b-orange { background: #fff4e5; color: #b36a00; border: 1px solid #f0c070; }
 
 /* ── FILTER BAR ──────────────────────────────────────────────────── */
 .filter-bar {
@@ -387,6 +388,27 @@ tr.clickable:hover td { background: var(--ms-brand-xlight); cursor: pointer; }
 }
 .cluster-action-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ms-brand); margin-bottom: 3px; }
 .cluster-ids { font-size: 11px; color: var(--ms-text-secondary); font-family: 'Cascadia Code', 'Consolas', monospace; }
+.inc-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 11px;
+  padding: 2px 8px; border-radius: 10px; cursor: default;
+  background: var(--ms-surface-alt); color: var(--ms-text-secondary);
+  border: 1px solid var(--ms-stroke); margin: 2px;
+  transition: background var(--ms-dur), color var(--ms-dur);
+}
+.inc-pill:hover { background: var(--ms-brand-xlight); color: var(--ms-brand); border-color: #b3d4f5; }
+.inc-pill.centroid { background: #fff8e1; color: #7a4800; border-color: #f0c070; font-weight: 700; }
+.inc-pill.centroid:hover { background: #ffeeba; }
+.inc-pill.near { background: var(--ms-teal-bg); color: var(--ms-teal); border-color: var(--ms-teal-border); }
+.inc-pill.near:hover { background: #b3eae0; }
+#tip {
+  display: none; position: fixed; z-index: 9999;
+  background: var(--ms-surface); border: 1px solid var(--ms-stroke);
+  box-shadow: var(--ms-shadow-4); border-radius: var(--ms-r);
+  padding: 10px 13px; max-width: 320px;
+  font-size: 12px; color: var(--ms-text); line-height: 1.5;
+  pointer-events: none;
+}
 
 /* ── DIAGNOSTIC CARDS ────────────────────────────────────────────── */
 .diag-card {
@@ -749,6 +771,7 @@ function readFile(file, type) {
       const text = e.target.result;
       if (type === 'analysis') {
         state.analysisData = parseAnalysis(text);
+        state.incidentLookup = Object.fromEntries(state.analysisData.map(r => [r.incident_id, r]));
         setLoaded('analysis', file.name, state.analysisData.length + ' incidents');
         renderAll();
       } else if (type === 'cluster') {
@@ -790,13 +813,16 @@ function clearFile(e, type) {
 // ══════════════════════════════════════════════════════════
 // CSV PARSERS
 // ══════════════════════════════════════════════════════════
+const MIN_CONFIDENCE = 0.55; // minimum confidence to treat a detected flag as genuine
+
 function parseAnalysis(text) {
   const r = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false });
   return r.data.map(row => {
-    row._trendOn = bool(row.trend_detected);
-    row._diagOn = bool(row.diag_gap_detected);
-    row._docOn = bool(row.doc_gap_detected);
-    row._escOn = bool(row.escalation_detected);
+    // Apply confidence floor to suppress low-confidence detections (false positive guard)
+    row._trendOn  = bool(row.trend_detected)    && num(row.trend_confidence)        >= MIN_CONFIDENCE;
+    row._diagOn   = bool(row.diag_gap_detected)  && num(row.diag_gap_confidence)     >= MIN_CONFIDENCE;
+    row._docOn    = bool(row.doc_gap_detected)   && num(row.doc_gap_confidence)      >= MIN_CONFIDENCE;
+    row._escOn    = bool(row.escalation_detected) && num(row.escalation_confidence)  >= MIN_CONFIDENCE;
     row._diagType = row.diagnostic_type || 'other_diagnostic';
     row._sev = parseInt(row.severity) || 4;
     row._steps = (row.steps_to_automate || '').split(';').map(s => s.trim()).filter(Boolean);
@@ -811,6 +837,8 @@ function parseCluster(text) {
     row._ids = (row.incident_ids || '').split(';').map(s => s.trim()).filter(Boolean);
     row._domTypes = (row.dominant_opportunity_types || '').split(';').map(s => s.trim()).filter(Boolean);
     row._count = parseInt(row.incident_count) || 0;
+    row._centroidId = (row.centroid_incident_id || '').trim();
+    row._nearIds = (row.nearest_incident_ids || '').split(';').map(s => s.trim()).filter(Boolean);
     return row;
   }).sort((a, b) => {
     const prio = { high: 0, medium: 1, low: 2 };
@@ -1188,12 +1216,43 @@ function oppRow(icon, title, desc, conf) {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
 
 // ══════════════════════════════════════════════════════════
+// INCIDENT TOOLTIP
+// ══════════════════════════════════════════════════════════
+function showTip(id, event) {
+  const row = (state.incidentLookup || {})[id];
+  const el = document.getElementById('tip');
+  if (!el) return;
+  let html = `<strong style="font-size:12px">${esc_html(row ? (row.title || id) : id)}</strong>`;
+  if (row) {
+    if (row.owning_team) html += `<div style="font-size:10px;color:var(--ms-text-secondary);margin-top:1px">${esc_html(row.owning_team)}</div>`;
+    // Prefer customer_impact (per-incident summary from IncidentParserAgent), fall back to opportunity descriptions
+    const summary = row.customer_impact || row.diag_opportunity_description || row.trend_description || row.escalation_description || '';
+    if (summary) html += `<div style="margin-top:5px;font-size:11px;color:var(--ms-text);line-height:1.5">${esc_html(summary.slice(0, 220))}${summary.length > 220 ? '…' : ''}</div>`;
+  }
+  el.innerHTML = html;
+  el.style.display = 'block';
+  _moveTip(event);
+}
+function hideTip() {
+  const el = document.getElementById('tip');
+  if (el) el.style.display = 'none';
+}
+function _moveTip(event) {
+  const el = document.getElementById('tip');
+  if (!el || el.style.display === 'none') return;
+  const x = event.clientX + 14, y = event.clientY + 14;
+  el.style.left = Math.min(x, window.innerWidth - el.offsetWidth - 8) + 'px';
+  el.style.top  = Math.min(y, window.innerHeight - el.offsetHeight - 8) + 'px';
+}
+document.addEventListener('mousemove', _moveTip);
+
+// ══════════════════════════════════════════════════════════
 // DIAGNOSTICS TAB
 // ══════════════════════════════════════════════════════════
 function diagTypeBadge(type) {
   if (type === 'm365rca_new_diagnostic') return `<span class="conn-badge">🔬 New M365RCA Diagnostic</span>`;
   if (type === 'm365rca_new_scenario')   return `<span class="conn-badge" style="background:#e6f4ff;color:#0078d4;border-color:#b3d9ff">➕ New Scenario</span>`;
-  if (type === 'product_improvement')    return `<span class="product-badge">🐛 Product Improvement</span>`;
+  if (type === 'product_improvement')    return `<span class="product-badge">💡 Product Opportunity</span>`;
   return `<span class="other-diag-badge">🛠 Other Diagnostic</span>`;
 }
 
@@ -1220,8 +1279,9 @@ function renderDiagnostics() {
   }
 
   listEl.innerHTML = filtered.slice(0, 200).map(r => {
+    const stepsLabel = r._diagType === 'product_improvement' ? 'Customer Challenge / User Story' : 'Diagnostic Rationale';
     const steps = r._steps.length
-      ? `<div class="diag-section-label">Steps to Automate</div>
+      ? `<div class="diag-section-label">${stepsLabel}</div>
          <ul class="steps-list">${r._steps.map(s => `<li>${esc_html(s)}</li>`).join('')}</ul>`
       : '';
     const connBadge = diagTypeBadge(r._diagType);
@@ -1293,11 +1353,22 @@ function renderClusters() {
     const prio = c.priority || 'medium';
     const prioClass = prio === 'high' ? 'b-red' : prio === 'medium' ? 'b-yellow' : 'b-green';
     const pbarClass = 'pbar-' + prio;
+    const isProdImprovement = c._domTypes.includes('product_improvement');
     const typesBadges = c._domTypes.map(t => {
-      const labels = { trend_detection: 'Trend', diagnostic_gap: 'Diagnostic', documentation_gap: 'Doc Gap', escalation_opportunity: 'Escalation' };
-      const cls = { trend_detection: 'b-blue', diagnostic_gap: 'b-teal', documentation_gap: 'b-purple', escalation_opportunity: 'b-yellow' };
+      const labels = { trend_detection: 'Trend', diagnostic_gap: 'Diagnostic', documentation_gap: 'Doc Gap', escalation_opportunity: 'Escalation', product_improvement: 'Product Opportunity' };
+      const cls = { trend_detection: 'b-blue', diagnostic_gap: 'b-teal', documentation_gap: 'b-purple', escalation_opportunity: 'b-yellow', product_improvement: 'b-orange' };
       return `<span class="badge ${cls[t] || 'b-gray'}">${labels[t] || t}</span>`;
     }).join(' ');
+
+    // Build incident pills — centroid gets gold highlight, 2 nearest get teal, rest are plain
+    const nearSet = new Set(c._nearIds);
+    const pillsHtml = c._ids.slice(0, 15).map(id => {
+      const cls = id === c._centroidId ? 'inc-pill centroid' : nearSet.has(id) ? 'inc-pill near' : 'inc-pill';
+      const prefix = id === c._centroidId ? '★ ' : '';
+      return `<span class="${cls}" onmouseenter="showTip('${id}',event)" onmouseleave="hideTip()">${prefix}${esc_html(id)}</span>`;
+    }).join('') + (c._ids.length > 15 ? `<span class="inc-pill" style="color:var(--ms-text-disabled)">+${c._ids.length - 15} more</span>` : '');
+
+    const actionLabel = isProdImprovement ? 'User Stories / PM Backlog' : 'PM Action';
 
     return `<div class="cluster-card">
       <div class="cluster-card-header">
@@ -1312,12 +1383,13 @@ function renderClusters() {
       </div>
       <div class="cluster-theme">${esc_html(c.theme || '')}</div>
       ${c.recommended_pm_action ? `<div class="cluster-action">
-        <div class="cluster-action-label">PM Action</div>
+        <div class="cluster-action-label">${actionLabel}</div>
         ${esc_html(c.recommended_pm_action)}
       </div>` : ''}
       ${typesBadges ? `<div style="margin-bottom:8px;display:flex;gap:4px;flex-wrap:wrap">${typesBadges}</div>` : ''}
       ${c.evidence_summary ? `<div style="font-size:12px;color:var(--ms-text-secondary);margin-bottom:8px;line-height:1.5">${esc_html(c.evidence_summary)}</div>` : ''}
-      ${c._ids.length ? `<div class="cluster-ids">${c._ids.slice(0,10).join(', ')}${c._ids.length > 10 ? ` … +${c._ids.length-10} more` : ''}</div>` : ''}
+      ${c._ids.length ? `<div class="cluster-ids" style="display:flex;flex-wrap:wrap;gap:0">${pillsHtml}</div>` : ''}
+      ${c._centroidId ? `<div style="font-size:10px;color:var(--ms-text-disabled);margin-top:4px">★ most representative incident</div>` : ''}
     </div>`;
   }).join('');
 }
@@ -1333,5 +1405,6 @@ function esc_html(s) {
 // Init
 updateTabs();
 </script>
+<div id="tip"></div>
 </body>
 </html>
