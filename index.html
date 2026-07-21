@@ -586,7 +586,7 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
       <div class="onboard-num">1</div>
       <div>
         <div class="onboard-title">Load analysis_results_*.csv</div>
-        <div class="onboard-desc">Per-incident opportunity classifications — required for Incidents and Diagnostics tabs.</div>
+        <div class="onboard-desc">Per-incident opportunity classifications — required for Incidents and Opportunities tabs.</div>
       </div>
     </div>
     <div class="onboard-step">
@@ -615,7 +615,7 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
     📋 Incidents <span class="tab-count" id="tab-incidents-count"></span>
   </button>
   <button class="tab-btn disabled" id="tab-diagnostics" onclick="switchTab('diagnostics')">
-    🔬 Diagnostics <span class="tab-count" id="tab-diagnostics-count"></span>
+    🎯 Opportunities <span class="tab-count" id="tab-diagnostics-count"></span>
   </button>
   <button class="tab-btn disabled" id="tab-clusters" onclick="switchTab('clusters')">
     🗂 Clusters <span class="tab-count" id="tab-clusters-count"></span>
@@ -673,7 +673,6 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
       <option value="trend">Trend detected</option>
       <option value="diag">Diagnostic opportunity</option>
       <option value="doc">Documentation gap</option>
-      <option value="escalation">Escalation opportunity</option>
       <option value="any">Any opportunity</option>
     </select>
     <span class="filter-count" id="inc-count"></span>
@@ -822,11 +821,9 @@ function parseAnalysis(text) {
     row._trendOn  = bool(row.trend_detected)    && num(row.trend_confidence)        >= MIN_CONFIDENCE;
     row._diagOn   = bool(row.diag_gap_detected)  && num(row.diag_gap_confidence)     >= MIN_CONFIDENCE;
     row._docOn    = bool(row.doc_gap_detected)   && num(row.doc_gap_confidence)      >= MIN_CONFIDENCE;
-    row._escOn    = bool(row.escalation_detected) && num(row.escalation_confidence)  >= MIN_CONFIDENCE;
     row._diagType = row.diagnostic_type || 'other_diagnostic';
     row._sev = parseInt(row.severity) || 4;
     row._steps = (row.steps_to_automate || '').split(';').map(s => s.trim()).filter(Boolean);
-    row._apiTargets = (row.m365rca_api_targets || '').split(';').map(s => s.trim()).filter(Boolean);
     row._outline = (row.suggested_article_outline || '').split(';').map(s => s.trim()).filter(Boolean);
     return row;
   });
@@ -905,8 +902,6 @@ function renderOverview() {
   const trend = data.length ? data.filter(r => r._trendOn).length : (parseInt(summary.trend_detected_count) || 0);
   const diag = data.length ? data.filter(r => r._diagOn).length : (parseInt(summary.diag_gap_count) || 0);
   const doc = data.length ? data.filter(r => r._docOn).length : (parseInt(summary.doc_gap_count) || 0);
-  const esc = data.length ? data.filter(r => r._escOn).length : (parseInt(summary.escalation_count) || 0);
-
   // Executive summary
   const execArea = document.getElementById('exec-summary-area');
   execArea.innerHTML = '';
@@ -925,15 +920,14 @@ function renderOverview() {
     ${kpiCard('Trend Detected', trend, pct(trend,total)+'% of incidents', '#0078d4', pct(trend,total))}
     ${kpiCard('Diagnostic Opportunity', diag, pct(diag,total)+'% of incidents', '#038387', pct(diag,total))}
     ${kpiCard('Documentation Gap', doc, pct(doc,total)+'% of incidents', '#5c2d91', pct(doc,total))}
-    ${kpiCard('Escalation Opportunity', esc, pct(esc,total)+'% of incidents', '#ffb900', pct(esc,total))}
   `;
 
   // Charts
   renderChart('chart-opp-donut', 'doughnut', {
-    labels: ['Trend', 'Diagnostic', 'Doc Gap', 'Escalation'],
+    labels: ['Trend', 'Diagnostic', 'Doc Gap'],
     datasets: [{
-      data: [trend, diag, doc, esc],
-      backgroundColor: ['#0078d4','#038387','#5c2d91','#ffb900'],
+      data: [trend, diag, doc],
+      backgroundColor: ['#0078d4','#038387','#5c2d91'],
       borderWidth: 2, borderColor: '#fff',
     }]
   }, { plugins: { legend: { position: 'right', labels: { font: { size: 11 } } } } });
@@ -1014,8 +1008,7 @@ function renderIncidents() {
     if (oppF === 'trend' && !r._trendOn) return false;
     if (oppF === 'diag' && !r._diagOn) return false;
     if (oppF === 'doc' && !r._docOn) return false;
-    if (oppF === 'escalation' && !r._escOn) return false;
-    if (oppF === 'any' && !r._trendOn && !r._diagOn && !r._docOn && !r._escOn) return false;
+    if (oppF === 'any' && !r._trendOn && !r._diagOn && !r._docOn) return false;
     if (q) {
       const haystack = [r.incident_id, r.title, r.owning_team, r.component_path].join(' ').toLowerCase();
       if (!haystack.includes(q)) return false;
@@ -1050,7 +1043,6 @@ function renderIncidents() {
           <span class="pip ${r._trendOn ? 'pip-trend' : 'pip-off'}" title="${r._trendOn ? 'Trend: ' + esc_html((r.trend_description||'').substring(0,100)) : 'Trend not detected'}"></span>
           <span class="pip ${r._diagOn ? 'pip-diag' : 'pip-off'}" title="${r._diagOn ? 'Diagnostic: ' + esc_html(r.suggested_diagnostic_name||'opportunity') : 'Diagnostic not detected'}"></span>
           <span class="pip ${r._docOn ? 'pip-doc' : 'pip-off'}" title="${r._docOn ? (r.wiki_covers_topic === 'True' ? 'TSG found: ' + esc_html(r.wiki_top_result_path||'') : 'Doc gap: ' + esc_html((r.doc_gap_description||'').substring(0,100))) : 'Doc gap not detected'}"></span>
-          <span class="pip ${r._escOn ? 'pip-esc' : 'pip-off'}" title="${r._escOn ? 'Escalation → ' + esc_html(r.escalation_target||r.escalation_description||'opportunity') : 'Escalation not detected'}"></span>
         </div>
         ${incOppLabel(r)}
       </td>
@@ -1064,7 +1056,6 @@ function incOppLabel(r) {
   if (r._docOn && r.wiki_top_result_path) return `<div class="opp-label">📄 TSG: ${esc_html(r.wiki_top_result_path.split('/').pop() || r.wiki_top_result_path)}</div>`;
   if (r._docOn && r.suggested_article_title) return `<div class="opp-label">📚 ${esc_html(r.suggested_article_title)}</div>`;
   if (r._trendOn && r.trend_description) return `<div class="opp-label">📈 ${esc_html(r.trend_description.substring(0, 50))}</div>`;
-  if (r._escOn) return `<div class="opp-label">⚠️ ${esc_html(r.escalation_target || 'Escalation')}</div>`;
   return '';
 }
 
@@ -1074,7 +1065,6 @@ function pipLegend() {
     <span><span class="pip pip-trend" style="display:inline-block;margin-right:4px"></span>Trend</span>
     <span><span class="pip pip-diag" style="display:inline-block;margin-right:4px"></span>Diagnostic</span>
     <span><span class="pip pip-doc" style="display:inline-block;margin-right:4px"></span>Doc Gap</span>
-    <span><span class="pip pip-esc" style="display:inline-block;margin-right:4px"></span>Escalation</span>
   </div>`;
 }
 
@@ -1129,9 +1119,6 @@ function buildDetailCard(r) {
     let body = oppRow('🔬', 'Diagnostic Opportunity: ' + (r.suggested_diagnostic_name || 'Build Opportunity'), r.diag_opportunity_description, r.diag_gap_confidence);
     body += `<div style="margin-top:8px">${diagTypeBadge(r._diagType)}</div>`;
     if (steps) body += steps;
-    if (r._apiTargets && r._apiTargets.length) {
-      body += `<div style="margin-top:8px;font-size:12px;color:var(--ms-text-secondary)"><strong>API targets:</strong> ${r._apiTargets.map(t=>`<code style="background:var(--ms-surface);border:1px solid var(--ms-stroke);padding:2px 5px;border-radius:3px">${esc_html(t)}</code>`).join(' ')}</div>`;
-    }
     if (r.diag_reasoning) body += reasoningBlock(r.diag_reasoning);
     oppsHtml += `<div class="inc-detail-opp">${body}</div>`;
   }
@@ -1149,21 +1136,6 @@ function buildDetailCard(r) {
       }
     }
     if (r.doc_reasoning) body += reasoningBlock(r.doc_reasoning);
-    oppsHtml += `<div class="inc-detail-opp">${body}</div>`;
-  }
-
-  if (r._escOn) {
-    let body = oppRow('⚠️', 'Escalation Opportunity', r.escalation_description, r.escalation_confidence);
-    if (r.escalation_target) {
-      body += `<div style="margin-top:8px;font-size:12px;color:var(--ms-text-secondary)">Target: <strong>${esc_html(r.escalation_target)}</strong></div>`;
-    }
-    if (r.escalation_recommended_action) {
-      body += `<div style="margin-top:10px;background:var(--ms-surface);border:1px solid var(--ms-stroke);border-radius:var(--ms-r);padding:8px 10px">
-        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:var(--ms-brand);margin-bottom:4px">Recommended Action</div>
-        <div style="font-size:12px;color:var(--ms-text);line-height:1.5">${esc_html(r.escalation_recommended_action)}</div>
-      </div>`;
-    }
-    if (r.escalation_reasoning) body += reasoningBlock(r.escalation_reasoning);
     oppsHtml += `<div class="inc-detail-opp">${body}</div>`;
   }
 
@@ -1226,7 +1198,7 @@ function showTip(id, event) {
   if (row) {
     if (row.owning_team) html += `<div style="font-size:10px;color:var(--ms-text-secondary);margin-top:1px">${esc_html(row.owning_team)}</div>`;
     // Prefer customer_impact (per-incident summary from IncidentParserAgent), fall back to opportunity descriptions
-    const summary = row.customer_impact || row.diag_opportunity_description || row.trend_description || row.escalation_description || '';
+    const summary = row.customer_impact || row.diag_opportunity_description || row.trend_description || '';
     if (summary) html += `<div style="margin-top:5px;font-size:11px;color:var(--ms-text);line-height:1.5">${esc_html(summary.slice(0, 220))}${summary.length > 220 ? '…' : ''}</div>`;
   }
   el.innerHTML = html;
@@ -1292,10 +1264,6 @@ function renderDiagnostics() {
          ${r.new_scenario_description ? `<div class="diag-section-label">New Scenario / Branch</div><div class="diag-desc">${esc_html(r.new_scenario_description)}</div>` : ''}`
       : '';
 
-    const apiTargetsBlock = (r._apiTargets && r._apiTargets.length)
-      ? `<div class="diag-section-label">API / Endpoint Targets</div>
-         <div class="diag-desc" style="font-family:monospace;font-size:11px">${r._apiTargets.map(t => esc_html(t)).join('<br>')}</div>`
-      : '';
     const whyBlock = r.diag_reasoning
       ? `<div class="diag-section-label" style="color:var(--ms-text-disabled)">Why</div>
          <div class="diag-desc" style="color:var(--ms-text-secondary);font-style:italic;font-size:12px">${esc_html(r.diag_reasoning)}</div>`
@@ -1313,7 +1281,6 @@ function renderDiagnostics() {
       <div class="diag-desc">${esc_html(r.diag_opportunity_description || '')}</div>
       ${scenarioBlock}
       ${steps}
-      ${apiTargetsBlock}
       ${whyBlock}
       <div style="margin-top:10px;font-size:11px;color:var(--ms-text-secondary)">
         Incident: <em>${esc_html(r.title)}</em>
@@ -1355,8 +1322,8 @@ function renderClusters() {
     const pbarClass = 'pbar-' + prio;
     const isProdImprovement = c._domTypes.includes('product_improvement');
     const typesBadges = c._domTypes.map(t => {
-      const labels = { trend_detection: 'Trend', diagnostic_gap: 'Diagnostic', documentation_gap: 'Doc Gap', escalation_opportunity: 'Escalation', product_improvement: 'Product Opportunity' };
-      const cls = { trend_detection: 'b-blue', diagnostic_gap: 'b-teal', documentation_gap: 'b-purple', escalation_opportunity: 'b-yellow', product_improvement: 'b-orange' };
+      const labels = { trend_detection: 'Trend', diagnostic_gap: 'Diagnostic', documentation_gap: 'Doc Gap', product_improvement: 'Product Opportunity' };
+      const cls = { trend_detection: 'b-blue', diagnostic_gap: 'b-teal', documentation_gap: 'b-purple', product_improvement: 'b-orange' };
       return `<span class="badge ${cls[t] || 'b-gray'}">${labels[t] || t}</span>`;
     }).join(' ');
 
