@@ -620,6 +620,9 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
   <button class="tab-btn disabled" id="tab-clusters" onclick="switchTab('clusters')">
     🗂 Clusters <span class="tab-count" id="tab-clusters-count"></span>
   </button>
+  <button class="tab-btn disabled" id="tab-bugs" onclick="switchTab('bugs')">
+    🐛 Bugs <span class="tab-count" id="tab-bugs-count"></span>
+  </button>
 </div>
 
 <!-- Tab: Overview -->
@@ -689,6 +692,7 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
           <th onclick="sortIncidents('title')">Title</th>
           <th onclick="sortIncidents('owning_team')">Team</th>
           <th>Opportunities</th>
+          <th>Bugs</th>
           <th onclick="sortIncidents('processing_time_seconds')">Time (s)</th>
         </tr>
       </thead>
@@ -732,6 +736,34 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
     <span class="filter-count" id="cluster-count"></span>
   </div>
   <div id="cluster-grid" class="cluster-grid"></div>
+</div>
+
+<!-- Tab: Bugs -->
+<div id="content-bugs" class="tab-content">
+  <div style="font-size:12px;color:var(--ms-text-secondary);margin-bottom:12px;
+              padding:10px 14px;background:var(--ms-brand-xlight);border:1px solid var(--ms-brand-light);
+              border-radius:var(--ms-r-lg)">
+    Incidents with an associated bug repair item. Bug IDs come from the <code>Bugs</code> column in your input CSV;
+    URLs are extracted from the incident discussion entries.
+  </div>
+  <div class="filter-bar">
+    <input type="text" id="bug-search" placeholder="Search by incident ID, title, or bug #…" oninput="renderBugs()">
+    <span class="filter-count" id="bug-count"></span>
+  </div>
+  <div class="table-wrap">
+    <table id="bug-table">
+      <thead>
+        <tr>
+          <th>Incident</th>
+          <th>Sev</th>
+          <th>Title</th>
+          <th>Team</th>
+          <th>Bugs / Repair Items</th>
+        </tr>
+      </thead>
+      <tbody id="bug-tbody"></tbody>
+    </table>
+  </div>
 </div>
 
 <script>
@@ -825,6 +857,10 @@ function parseAnalysis(text) {
     row._sev = parseInt(row.severity) || 4;
     row._steps = (row.steps_to_automate || '').split(';').map(s => s.trim()).filter(Boolean);
     row._outline = (row.suggested_article_outline || '').split(';').map(s => s.trim()).filter(Boolean);
+    row._wikiUrl = row.wiki_top_result_url || '';
+    row._wikiPaths = (row.wiki_result_paths || '').split(';').map(s => s.trim()).filter(Boolean);
+    row._bugIds = (row.bug_ids || '').split(';').map(s => s.trim()).filter(Boolean);
+    row._bugUrls = (row.bug_urls || '').split(';').map(s => s.trim()).filter(Boolean);
     return row;
   });
 }
@@ -857,10 +893,13 @@ function updateTabs() {
   document.getElementById('tabs').classList.toggle('visible', hasSome);
 
   const overviewOk = hasA || hasS;
+  const bugsData = hasA ? (state.analysisData || []).filter(r => r._bugIds && r._bugIds.length) : [];
   setTabState('overview', overviewOk);
   setTabState('incidents', hasA);
   setTabState('diagnostics', hasA);
   setTabState('clusters', hasC);
+  setTabState('bugs', hasA);
+  document.getElementById('tab-bugs-count').textContent = bugsData.length || '';
 
   if (!state.activeTab) {
     if (overviewOk) switchTab('overview');
@@ -890,6 +929,7 @@ function renderAll() {
   renderOverview();
   renderIncidents();
   renderDiagnostics();
+  renderBugs();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1028,11 +1068,27 @@ function renderIncidents() {
 
   const tbody = document.getElementById('inc-tbody');
   if (!_incFiltered.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="no-results">No incidents match the current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="no-results">No incidents match the current filters.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = _incFiltered.slice(0, 500).map((r, i) => `
+  tbody.innerHTML = _incFiltered.slice(0, 500).map((r, i) => {
+    const bugCell = r._bugIds && r._bugIds.length
+      ? r._bugIds.map(id => {
+          const url = (r._bugUrls || []).find(u => u.includes('/edit/' + id));
+          return url
+            ? `<a href="${url}" target="_blank" rel="noopener" onclick="event.stopPropagation()"
+                  style="font-size:11px;color:var(--ms-brand);font-weight:600;text-decoration:none;
+                         background:var(--ms-brand-xlight);border:1px solid var(--ms-brand-light);
+                         border-radius:3px;padding:1px 6px;display:inline-block;margin:1px"
+                  title="${esc_html(url)}">#${esc_html(id)} ↗</a>`
+            : `<span style="font-size:11px;color:var(--ms-text-secondary);
+                            background:var(--ms-surface-alt);border:1px solid var(--ms-stroke);
+                            border-radius:3px;padding:1px 6px;display:inline-block;margin:1px">#${esc_html(id)}</span>`;
+        }).join('')
+      : '<span style="color:var(--ms-text-disabled);font-size:11px">—</span>';
+
+    return `
     <tr class="clickable" onclick="toggleIncDetail(${i}, this)">
       <td><span class="id-mono">${esc_html(r.incident_id)}</span></td>
       <td><span class="sev-dot sev-${r._sev}">${r._sev}</span></td>
@@ -1046,16 +1102,24 @@ function renderIncidents() {
         </div>
         ${incOppLabel(r)}
       </td>
+      <td>${bugCell}</td>
       <td style="font-size:12px;color:var(--ms-text-secondary)">${num(r.processing_time_seconds).toFixed(1)}s</td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
 }
 
 function incOppLabel(r) {
   if (r._diagOn && r.suggested_diagnostic_name) return `<div class="opp-label">🔬 ${esc_html(r.suggested_diagnostic_name)}</div>`;
-  if (r._docOn && r.wiki_top_result_path) return `<div class="opp-label">📄 TSG: ${esc_html(r.wiki_top_result_path.split('/').pop() || r.wiki_top_result_path)}</div>`;
+  if (r._docOn && r.wiki_top_result_path) {
+    const label = r.wiki_top_result_path.split('/').filter(Boolean).pop() || r.wiki_top_result_path;
+    const link = r._wikiUrl
+      ? `<a href="${r._wikiUrl}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline" onclick="event.stopPropagation()" title="${esc_html(r.wiki_top_result_path)}">📄 TSG: ${esc_html(label)}</a>`
+      : `📄 TSG: ${esc_html(label)}`;
+    return `<div class="opp-label">${link}</div>`;
+  }
   if (r._docOn && r.suggested_article_title) return `<div class="opp-label">📚 ${esc_html(r.suggested_article_title)}</div>`;
   if (r._trendOn && r.trend_description) return `<div class="opp-label">📈 ${esc_html(r.trend_description.substring(0, 50))}</div>`;
+  if (r._bugIds && r._bugIds.length) return `<div class="opp-label">🐛 Bug #${esc_html(r._bugIds[0])}${r._bugIds.length > 1 ? ' +' + (r._bugIds.length - 1) : ''}</div>`;
   return '';
 }
 
@@ -1088,7 +1152,7 @@ function toggleIncDetail(filteredIdx, tr) {
   detailTr.id = 'inc-detail-tr';
   detailTr.className = 'inc-detail-tr';
   const td = document.createElement('td');
-  td.colSpan = 6;
+  td.colSpan = 7;
   td.innerHTML = buildDetailCard(r);
   detailTr.appendChild(td);
   tr.after(detailTr);
@@ -1131,7 +1195,24 @@ function buildDetailCard(r) {
     if (r.wiki_searched === 'True') {
       const covers = r.wiki_covers_topic === 'True';
       body += `<div style="margin-top:8px"><span class="badge ${covers ? 'b-green' : 'b-red'}">${covers ? '📄 TSG found' : 'Wiki gap confirmed'}</span></div>`;
-      if (covers && r.wiki_top_result_path) {
+      if (r._wikiUrl) {
+        const label = r.wiki_top_result_path.split('/').filter(Boolean).pop() || r.wiki_top_result_path;
+        body += `<div style="margin-top:8px;font-size:12px">
+          <span style="color:var(--ms-text-secondary)">Wiki reference: </span>
+          <a href="${r._wikiUrl}" target="_blank" rel="noopener" style="color:var(--ms-brand);text-decoration:none;font-weight:600"
+             title="${esc_html(r.wiki_top_result_path)}">${esc_html(label)} ↗</a>
+        </div>`;
+        if (r._wikiPaths.length > 1) {
+          const extra = r._wikiPaths.slice(1).map(p => {
+            const url = wikiPathToUrl(p);
+            const lbl = p.split('/').filter(Boolean).pop() || p;
+            return url
+              ? `<a href="${url}" target="_blank" rel="noopener" style="color:var(--ms-brand);text-decoration:none" title="${esc_html(p)}">${esc_html(lbl)}</a>`
+              : esc_html(lbl);
+          }).join(' · ');
+          body += `<div style="margin-top:4px;font-size:11px;color:var(--ms-text-secondary)">Also: ${extra}</div>`;
+        }
+      } else if (r.wiki_top_result_path) {
         body += `<div style="margin-top:6px;font-size:12px;color:var(--ms-text-secondary)">Path: <code style="background:var(--ms-surface);border:1px solid var(--ms-stroke);padding:2px 5px;border-radius:3px">${esc_html(r.wiki_top_result_path)}</code></div>`;
       }
     }
@@ -1150,6 +1231,8 @@ function buildDetailCard(r) {
     </div>`;
   }
 
+  const bugsHtml = buildBugsBlock(r);
+
   return `<div class="inc-detail-card">
     <div class="inc-detail-header">
       <div>
@@ -1163,7 +1246,68 @@ function buildDetailCard(r) {
       </div>
       <button class="inc-detail-close" onclick="closeDetail()">✕ Close</button>
     </div>
+    ${bugsHtml}
     <div class="inc-detail-opps">${oppsHtml}</div>
+  </div>`;
+}
+
+function buildBugsBlock(r) {
+  // Show associated bugs/repair items if any bug IDs or URLs are present
+  const ids = r._bugIds || [];
+  const urls = r._bugUrls || [];
+  if (!ids.length && !urls.length) return '';
+
+  // Build a map from bug ID to URL for matched pairs
+  const idToUrl = {};
+  urls.forEach(u => {
+    const m = u.match(/\/edit\/(\d+)/);
+    if (m) idToUrl[m[1]] = u;
+  });
+
+  // Render each bug ID as a link (if URL found) or plain badge
+  const bugItems = ids.map(id => {
+    const url = idToUrl[id];
+    return url
+      ? `<a href="${url}" target="_blank" rel="noopener"
+           style="display:inline-flex;align-items:center;gap:4px;color:var(--ms-brand);
+                  font-size:12px;font-weight:600;text-decoration:none;
+                  background:var(--ms-brand-xlight);border:1px solid var(--ms-brand-light);
+                  border-radius:4px;padding:2px 8px"
+           title="${esc_html(url)}">🐛 Bug #${esc_html(id)} ↗</a>`
+      : `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;
+                      background:var(--ms-surface-alt);border:1px solid var(--ms-stroke);
+                      border-radius:4px;padding:2px 8px;color:var(--ms-text-secondary)">
+           🐛 Bug #${esc_html(id)}</span>`;
+  });
+
+  // Any URLs found in discussion that weren't in the CSV bug list
+  const extraUrls = urls.filter(u => {
+    const m = u.match(/\/edit\/(\d+)/);
+    return m && !ids.includes(m[1]);
+  });
+  extraUrls.forEach(url => {
+    const m = url.match(/\/edit\/(\d+)/);
+    const id = m ? m[1] : url;
+    bugItems.push(
+      `<a href="${url}" target="_blank" rel="noopener"
+          style="display:inline-flex;align-items:center;gap:4px;color:var(--ms-brand);
+                 font-size:12px;font-weight:600;text-decoration:none;
+                 background:var(--ms-brand-xlight);border:1px solid var(--ms-brand-light);
+                 border-radius:4px;padding:2px 8px"
+          title="${esc_html(url)}">🐛 Bug #${esc_html(id)} ↗</a>`
+    );
+  });
+
+  if (!bugItems.length) return '';
+
+  return `<div style="margin-bottom:12px;padding:10px 12px;
+                      background:var(--ms-surface-alt);border:1px solid var(--ms-stroke);
+                      border-radius:var(--ms-r-lg)">
+    <div style="font-size:10px;font-weight:800;text-transform:uppercase;
+                letter-spacing:0.06em;color:var(--ms-text-secondary);margin-bottom:6px">
+      Repair Items / Associated Bugs
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${bugItems.join('')}</div>
   </div>`;
 }
 
@@ -1337,6 +1481,26 @@ function renderClusters() {
 
     const actionLabel = isProdImprovement ? 'User Stories / PM Backlog' : 'PM Action';
 
+    // Wiki references — aggregate from incidents in this cluster (requires analysis CSV loaded)
+    const wikiRefs = state.analysisData ? clusterWikiRefs(c._ids) : [];
+    const wikiRefsHtml = wikiRefs.length ? `
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--ms-stroke)">
+        <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:var(--ms-purple);margin-bottom:6px">📄 Wiki References</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          ${wikiRefs.slice(0, 5).map(ref => `
+            <div style="font-size:12px;display:flex;align-items:baseline;gap:6px">
+              <span style="color:${ref.covers ? 'var(--ms-green)' : 'var(--ms-red)'}">
+                ${ref.covers ? '✓' : '✗'}
+              </span>
+              <a href="${ref.url}" target="_blank" rel="noopener"
+                 style="color:var(--ms-brand);text-decoration:none;font-weight:600"
+                 title="${esc_html(ref.path)}">${esc_html(ref.label)} ↗</a>
+              ${!ref.covers ? `<span style="font-size:10px;color:var(--ms-red);font-style:italic">gap</span>` : ''}
+            </div>`).join('')}
+          ${wikiRefs.length > 5 ? `<div style="font-size:11px;color:var(--ms-text-disabled)">+${wikiRefs.length - 5} more pages</div>` : ''}
+        </div>
+      </div>` : '';
+
     return `<div class="cluster-card">
       <div class="cluster-card-header">
         <div class="cluster-priority-bar ${pbarClass}"></div>
@@ -1355,9 +1519,73 @@ function renderClusters() {
       </div>` : ''}
       ${typesBadges ? `<div style="margin-bottom:8px;display:flex;gap:4px;flex-wrap:wrap">${typesBadges}</div>` : ''}
       ${c.evidence_summary ? `<div style="font-size:12px;color:var(--ms-text-secondary);margin-bottom:8px;line-height:1.5">${esc_html(c.evidence_summary)}</div>` : ''}
-      ${c._ids.length ? `<div class="cluster-ids" style="display:flex;flex-wrap:wrap;gap:0">${pillsHtml}</div>` : ''}
+      ${wikiRefsHtml}
+      ${c._ids.length ? `<div class="cluster-ids" style="display:flex;flex-wrap:wrap;gap:0;margin-top:8px">${pillsHtml}</div>` : ''}
       ${c._centroidId ? `<div style="font-size:10px;color:var(--ms-text-disabled);margin-top:4px">★ most representative incident</div>` : ''}
     </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════
+// BUGS TAB
+// ══════════════════════════════════════════════════════════
+function renderBugs() {
+  const data = (state.analysisData || []).filter(r => r._bugIds && r._bugIds.length);
+  const q = (document.getElementById('bug-search')?.value || '').toLowerCase();
+
+  const filtered = data.filter(r => {
+    if (!q) return true;
+    const hay = [r.incident_id, r.title, r.owning_team, ...(r._bugIds || [])].join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+
+  document.getElementById('bug-count').textContent = `${filtered.length} of ${data.length} incidents with bugs`;
+
+  const tbody = document.getElementById('bug-tbody');
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="no-results">${data.length ? 'No matches.' : 'No incidents with associated bugs found in the loaded data.'}</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(r => {
+    const bugLinks = (r._bugIds || []).map(id => {
+      const url = (r._bugUrls || []).find(u => u.includes('/edit/' + id));
+      return url
+        ? `<a href="${url}" target="_blank" rel="noopener"
+              style="display:inline-flex;align-items:center;gap:4px;color:var(--ms-brand);
+                     font-size:12px;font-weight:700;text-decoration:none;
+                     background:var(--ms-brand-xlight);border:1px solid var(--ms-brand-light);
+                     border-radius:4px;padding:3px 9px;margin:2px"
+              title="${esc_html(url)}">🐛 #${esc_html(id)} ↗</a>`
+        : `<span style="display:inline-flex;align-items:center;font-size:12px;
+                        background:var(--ms-surface-alt);border:1px solid var(--ms-stroke);
+                        border-radius:4px;padding:3px 9px;margin:2px;color:var(--ms-text-secondary)">
+             🐛 #${esc_html(id)} <span style="font-size:10px;margin-left:4px;color:var(--ms-text-disabled)">(no URL in discussion)</span></span>`;
+    }).join('');
+
+    // Any extra URLs from discussion not in CSV bug list
+    const extraLinks = (r._bugUrls || []).filter(u => {
+      const m = u.match(/\/edit\/(\d+)/);
+      return m && !(r._bugIds || []).includes(m[1]);
+    }).map(url => {
+      const m = url.match(/\/edit\/(\d+)/);
+      const id = m ? m[1] : '?';
+      return `<a href="${url}" target="_blank" rel="noopener"
+                 style="display:inline-flex;align-items:center;gap:4px;color:var(--ms-teal);
+                        font-size:12px;font-weight:700;text-decoration:none;
+                        background:var(--ms-teal-bg);border:1px solid var(--ms-teal-border);
+                        border-radius:4px;padding:3px 9px;margin:2px"
+                 title="${esc_html(url)}">🔗 #${esc_html(id)} ↗</a>`;
+    }).join('');
+
+    return `<tr class="clickable" onclick="switchTab('incidents');setTimeout(()=>{
+      document.getElementById('inc-search').value='${r.incident_id}';renderIncidents();},50)">
+      <td><span class="id-mono">${esc_html(r.incident_id)}</span></td>
+      <td><span class="sev-dot sev-${r._sev}">${r._sev}</span></td>
+      <td class="title-cell" title="${esc_html(r.title)}">${esc_html(r.title)}</td>
+      <td style="font-size:12px;color:var(--ms-text-secondary)">${esc_html(r.owning_team || '')}</td>
+      <td>${bugLinks}${extraLinks}</td>
+    </tr>`;
   }).join('');
 }
 
@@ -1367,6 +1595,38 @@ function renderClusters() {
 function esc_html(s) {
   if (!s) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Construct ADO wiki URL from a page path (mirrors core.py's _wiki_path_to_url).
+// Falls back gracefully if the path looks like a full URL already.
+function wikiPathToUrl(path) {
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  const encoded = encodeURIComponent(path).replace(/%2F/g, '/');
+  return `https://dev.azure.com/Supportability/Modern%20Workplace/_wiki/wikis/Modern%20Workplace.wiki?pagePath=${encoded}`;
+}
+
+// Aggregate unique wiki references from incidents in a cluster.
+// Returns [{path, url, label, covers}] deduplicated by path.
+function clusterWikiRefs(incidentIds) {
+  const seen = new Set();
+  const refs = [];
+  for (const id of incidentIds) {
+    const r = (state.incidentLookup || {})[id];
+    if (!r) continue;
+    const paths = r._wikiPaths && r._wikiPaths.length ? r._wikiPaths : (r.wiki_top_result_path ? [r.wiki_top_result_path] : []);
+    for (const p of paths) {
+      if (!p || seen.has(p)) continue;
+      seen.add(p);
+      refs.push({
+        path: p,
+        url: r._wikiUrl && p === r.wiki_top_result_path ? r._wikiUrl : wikiPathToUrl(p),
+        label: p.split('/').filter(Boolean).pop() || p,
+        covers: r.wiki_covers_topic === 'True',
+      });
+    }
+  }
+  return refs;
 }
 
 // Init
