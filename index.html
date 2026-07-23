@@ -743,7 +743,7 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
   <div style="font-size:12px;color:var(--ms-text-secondary);margin-bottom:12px;
               padding:10px 14px;background:var(--ms-brand-xlight);border:1px solid var(--ms-brand-light);
               border-radius:var(--ms-r-lg)">
-    Incidents with an associated bug repair item. Bug IDs come from the <code>Bugs</code> column in your input CSV;
+    Incidents with an associated bug repair item. Bug IDs come from the <code>BugId</code> (or <code>Bugs</code>) column in your input CSV;
     URLs are extracted from the incident discussion entries.
   </div>
   <div class="filter-bar">
@@ -1192,36 +1192,20 @@ function buildDetailCard(r) {
     if (r.suggested_article_title) {
       body += `<div style="margin-top:8px;font-size:12px;color:var(--ms-text-secondary)">Suggested article: <em>${esc_html(r.suggested_article_title)}</em></div>`;
     }
-    if (r.wiki_searched === 'True') {
-      const covers = r.wiki_covers_topic === 'True';
-      body += `<div style="margin-top:8px"><span class="badge ${covers ? 'b-green' : 'b-red'}">${covers ? '📄 TSG found' : 'Wiki gap confirmed'}</span></div>`;
-      if (r._wikiUrl) {
-        const label = r.wiki_top_result_path.split('/').filter(Boolean).pop() || r.wiki_top_result_path;
-        body += `<div style="margin-top:8px;font-size:12px">
-          <span style="color:var(--ms-text-secondary)">Wiki reference: </span>
-          <a href="${r._wikiUrl}" target="_blank" rel="noopener" style="color:var(--ms-brand);text-decoration:none;font-weight:600"
-             title="${esc_html(r.wiki_top_result_path)}">${esc_html(label)} ↗</a>
-        </div>`;
-        if (r._wikiPaths.length > 1) {
-          const extra = r._wikiPaths.slice(1).map(p => {
-            const url = wikiPathToUrl(p);
-            const lbl = p.split('/').filter(Boolean).pop() || p;
-            return url
-              ? `<a href="${url}" target="_blank" rel="noopener" style="color:var(--ms-brand);text-decoration:none" title="${esc_html(p)}">${esc_html(lbl)}</a>`
-              : esc_html(lbl);
-          }).join(' · ');
-          body += `<div style="margin-top:4px;font-size:11px;color:var(--ms-text-secondary)">Also: ${extra}</div>`;
-        }
-      } else if (r.wiki_top_result_path) {
-        body += `<div style="margin-top:6px;font-size:12px;color:var(--ms-text-secondary)">Path: <code style="background:var(--ms-surface);border:1px solid var(--ms-stroke);padding:2px 5px;border-radius:3px">${esc_html(r.wiki_top_result_path)}</code></div>`;
-      }
-    }
+    body += wikiRefBlock(r);
     if (r.doc_reasoning) body += reasoningBlock(r.doc_reasoning);
     oppsHtml += `<div class="inc-detail-opp">${body}</div>`;
   }
 
   if (!oppsHtml) {
     oppsHtml = `<div class="cpop-empty">No opportunities detected for this incident.</div>`;
+    const wikiSection = wikiRefBlock(r);
+    if (wikiSection) {
+      oppsHtml += `<div class="inc-detail-opp" style="border-color:var(--ms-purple-border);margin-top:10px">
+        <div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--ms-purple);margin-bottom:8px">📄 Wiki / TSG Reference</div>
+        ${wikiSection}
+      </div>`;
+    }
   }
 
   if (r.error) {
@@ -1309,6 +1293,33 @@ function buildBugsBlock(r) {
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:6px">${bugItems.join('')}</div>
   </div>`;
+}
+
+function wikiRefBlock(r) {
+  if (r.wiki_searched !== 'True' || (!r._wikiUrl && !r.wiki_top_result_path)) return '';
+  const covers = r.wiki_covers_topic === 'True';
+  let html = `<div style="margin-top:8px"><span class="badge ${covers ? 'b-green' : 'b-red'}">${covers ? '📄 TSG found' : 'Wiki gap confirmed'}</span></div>`;
+  if (r._wikiUrl) {
+    const label = (r.wiki_top_result_path || '').split('/').filter(Boolean).pop() || r.wiki_top_result_path;
+    html += `<div style="margin-top:8px;font-size:12px">
+      <span style="color:var(--ms-text-secondary)">Wiki reference: </span>
+      <a href="${r._wikiUrl}" target="_blank" rel="noopener" style="color:var(--ms-brand);text-decoration:none;font-weight:600"
+         title="${esc_html(r.wiki_top_result_path)}">${esc_html(label)} ↗</a>
+    </div>`;
+    if (r._wikiPaths.length > 1) {
+      const extra = r._wikiPaths.slice(1).map(p => {
+        const url = wikiPathToUrl(p);
+        const lbl = p.split('/').filter(Boolean).pop() || p;
+        return url
+          ? `<a href="${url}" target="_blank" rel="noopener" style="color:var(--ms-brand);text-decoration:none" title="${esc_html(p)}">${esc_html(lbl)}</a>`
+          : esc_html(lbl);
+      }).join(' · ');
+      html += `<div style="margin-top:4px;font-size:11px;color:var(--ms-text-secondary)">Also: ${extra}</div>`;
+    }
+  } else if (r.wiki_top_result_path) {
+    html += `<div style="margin-top:6px;font-size:12px;color:var(--ms-text-secondary)">Path: <code style="background:var(--ms-surface);border:1px solid var(--ms-stroke);padding:2px 5px;border-radius:3px">${esc_html(r.wiki_top_result_path)}</code></div>`;
+  }
+  return html;
 }
 
 function reasoningBlock(reasoning) {
