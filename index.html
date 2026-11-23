@@ -353,6 +353,21 @@ tr.clickable:hover td { background: var(--ms-brand-xlight); cursor: pointer; }
 .pip-off { background: var(--ms-stroke-strong); }
 .pip-diag { background: var(--ms-teal); }
 .pip-doc { background: var(--ms-purple); }
+.pip-pillar { background: #ca5010; }
+.pip-resolve { background: var(--ms-green); }
+.pip-covgap { background: var(--ms-red); }
+.g7 { grid-template-columns: repeat(7, 1fr); }
+.b-pillar { background: #fdf0e8; color: #ca5010; border: 1px solid #f4c3a3; }
+.b-mrca { background: var(--ms-teal-bg); color: var(--ms-teal); border: 1px solid var(--ms-teal-border); }
+.cov-card { background: var(--ms-surface); border: 1px solid var(--ms-stroke); border-left: 4px solid var(--ms-green); border-radius: 6px; padding: 14px 16px; margin-bottom: 10px; }
+.cov-card.gap { border-left-color: var(--ms-red); }
+.cov-card.pillar { border-left-color: #ca5010; }
+.cov-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 16px; }
+.cov-table th { text-align: left; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ms-text-secondary); padding: 6px 8px; border-bottom: 1px solid var(--ms-stroke); }
+.cov-table td { padding: 6px 8px; border-bottom: 1px solid var(--ms-stroke); vertical-align: top; }
+.cov-table td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+.cluster-diag { margin: 8px 0; padding: 8px 10px; border-radius: 6px; background: var(--ms-surface-alt); font-size: 12px; line-height: 1.5; }
+.cluster-diag-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #ca5010; margin-bottom: 4px; }
 .pip-esc { background: var(--ms-yellow-dot); }
 .pip-trend { background: var(--ms-brand); }
 .title-cell { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -520,7 +535,7 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
 /* ── RESPONSIVE ──────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .upload-section { grid-template-columns: 1fr; }
-  .g4, .g5 { grid-template-columns: 1fr 1fr; }
+  .g4, .g5, .g7 { grid-template-columns: 1fr 1fr; }
   .g3 { grid-template-columns: 1fr; }
   .cg2, .cg3 { grid-template-columns: 1fr; }
   .cluster-grid { grid-template-columns: 1fr; }
@@ -630,7 +645,7 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
   <div id="exec-summary-area"></div>
   <div class="section">
     <div class="section-header"><span class="section-title">Opportunity Summary</span></div>
-    <div class="kpi-grid g5" id="kpi-overview"></div>
+    <div class="kpi-grid g7" id="kpi-overview"></div>
   </div>
   <div class="section">
     <div class="section-header"><span class="section-title">Distribution</span></div>
@@ -674,7 +689,10 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
     <select id="inc-f-opp" onchange="renderIncidents()">
       <option value="">All opportunities</option>
       <option value="trend">Trend detected</option>
-      <option value="diag">Diagnostic opportunity</option>
+      <option value="diag">MRCA / diagnostic opportunity</option>
+      <option value="pillar">Pillar diagnostic opportunity</option>
+      <option value="resolvable">Existing diagnostic could resolve</option>
+      <option value="covgap">Gap in existing diagnostic</option>
       <option value="doc">Documentation gap</option>
       <option value="any">Any opportunity</option>
     </select>
@@ -721,6 +739,29 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
     </div>
     <div id="diag-list"></div>
   </div>
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Existing Diagnostic Coverage (MRCA + Pillar)</span>
+      <span class="section-badge">Could an existing diagnostic have resolved it? Where do existing diagnostics fall short?</span>
+    </div>
+    <div id="cov-leaderboard"></div>
+    <div class="filter-bar">
+      <input type="text" id="cov-search" placeholder="Search by incident or diagnostic…" oninput="renderCoverage()">
+      <select id="cov-f-view" onchange="renderCoverage()">
+        <option value="">All coverage findings</option>
+        <option value="resolvable">Existing diagnostic could resolve</option>
+        <option value="covgap">Gap in existing diagnostic</option>
+        <option value="pillar">New Pillar diagnostic opportunity</option>
+      </select>
+      <select id="cov-f-platform" onchange="renderCoverage()">
+        <option value="">All platforms</option>
+        <option value="pillar">Pillar</option>
+        <option value="mrca">MRCA</option>
+      </select>
+      <span class="filter-count" id="cov-count"></span>
+    </div>
+    <div id="cov-list"></div>
+  </div>
 </div>
 
 <!-- Tab: Clusters -->
@@ -732,6 +773,9 @@ tr.inc-selected:hover td { background: var(--ms-brand-xlight) !important; }
       <option value="high">High</option>
       <option value="medium">Medium</option>
       <option value="low">Low</option>
+    </select>
+    <select id="cluster-f-cat" onchange="renderClusters()">
+      <option value="">All EXO categories</option>
     </select>
     <span class="filter-count" id="cluster-count"></span>
   </div>
@@ -854,11 +898,19 @@ function parseAnalysis(text) {
     row._diagOn   = bool(row.diag_gap_detected)  && num(row.diag_gap_confidence)     >= MIN_CONFIDENCE;
     row._docOn    = bool(row.doc_gap_detected)   && num(row.doc_gap_confidence)      >= MIN_CONFIDENCE;
     row._diagType = row.diagnostic_type || 'other_diagnostic';
+    row._pillarOn  = bool(row.pillar_opp_detected)        && num(row.pillar_opp_confidence)        >= MIN_CONFIDENCE;
+    row._resolveOn = bool(row.existing_diag_resolvable)   && num(row.existing_diag_confidence)     >= MIN_CONFIDENCE;
+    row._covGapOn  = bool(row.diag_coverage_gap_detected) && num(row.diag_coverage_gap_confidence) >= MIN_CONFIDENCE;
+    row._pillarChecks = (row.pillar_opp_checks || '').split(';').map(s => s.trim()).filter(Boolean);
+    row._pillarSources = (row.pillar_opp_data_sources || '').split(';').map(s => s.trim()).filter(Boolean);
     row._sev = parseInt(row.severity) || 4;
     row._steps = (row.steps_to_automate || '').split(';').map(s => s.trim()).filter(Boolean);
     row._outline = (row.suggested_article_outline || '').split(';').map(s => s.trim()).filter(Boolean);
     row._wikiUrl = row.wiki_top_result_url || '';
     row._wikiPaths = (row.wiki_result_paths || '').split(';').map(s => s.trim()).filter(Boolean);
+    row._wikiPlatformTags = (row.wiki_platform_tags || '').split(';').map(s => s.trim()).filter(Boolean);
+    row._featureArea = row.feature_area || '';
+    row._coverageGapType = row.coverage_gap_type || 'none';
     row._bugIds = (row.bug_ids || '').split(';').map(s => s.trim()).filter(Boolean);
     row._bugUrls = (row.bug_urls || '').split(';').map(s => s.trim()).filter(Boolean);
     return row;
@@ -929,6 +981,7 @@ function renderAll() {
   renderOverview();
   renderIncidents();
   renderDiagnostics();
+  renderCoverage();
   renderBugs();
 }
 
@@ -942,6 +995,9 @@ function renderOverview() {
   const trend = data.length ? data.filter(r => r._trendOn).length : (parseInt(summary.trend_detected_count) || 0);
   const diag = data.length ? data.filter(r => r._diagOn).length : (parseInt(summary.diag_gap_count) || 0);
   const doc = data.length ? data.filter(r => r._docOn).length : (parseInt(summary.doc_gap_count) || 0);
+  const pillar = data.length ? data.filter(r => r._pillarOn).length : (parseInt(summary.pillar_opp_count) || 0);
+  const resolv = data.length ? data.filter(r => r._resolveOn).length : (parseInt(summary.existing_diag_resolvable_count) || 0);
+  const covgap = data.length ? data.filter(r => r._covGapOn).length : (parseInt(summary.diag_coverage_gap_count) || 0);
   // Executive summary
   const execArea = document.getElementById('exec-summary-area');
   execArea.innerHTML = '';
@@ -958,16 +1014,19 @@ function renderOverview() {
   kpiEl.innerHTML = `
     ${kpiCard('Total Incidents', total, '', '#0078d4', 100)}
     ${kpiCard('Trend Detected', trend, pct(trend,total)+'% of incidents', '#0078d4', pct(trend,total))}
-    ${kpiCard('Diagnostic Opportunity', diag, pct(diag,total)+'% of incidents', '#038387', pct(diag,total))}
+    ${kpiCard('MRCA / Diag Opportunity', diag, pct(diag,total)+'% of incidents', '#038387', pct(diag,total))}
+    ${kpiCard('Pillar Opportunity', pillar, pct(pillar,total)+'% of incidents', '#ca5010', pct(pillar,total))}
+    ${kpiCard('Existing Diag Could Resolve', resolv, pct(resolv,total)+'% deflectable', '#107c10', pct(resolv,total))}
+    ${kpiCard('Gap in Existing Diag', covgap, pct(covgap,total)+'% of incidents', '#c50f1f', pct(covgap,total))}
     ${kpiCard('Documentation Gap', doc, pct(doc,total)+'% of incidents', '#5c2d91', pct(doc,total))}
   `;
 
   // Charts
   renderChart('chart-opp-donut', 'doughnut', {
-    labels: ['Trend', 'Diagnostic', 'Doc Gap'],
+    labels: ['Trend', 'MRCA / Diag', 'Pillar', 'Existing diag resolves', 'Diag gap', 'Doc Gap'],
     datasets: [{
-      data: [trend, diag, doc],
-      backgroundColor: ['#0078d4','#038387','#5c2d91'],
+      data: [trend, diag, pillar, resolv, covgap, doc],
+      backgroundColor: ['#0078d4','#038387','#ca5010','#107c10','#c50f1f','#5c2d91'],
       borderWidth: 2, borderColor: '#fff',
     }]
   }, { plugins: { legend: { position: 'right', labels: { font: { size: 11 } } } } });
@@ -1048,7 +1107,10 @@ function renderIncidents() {
     if (oppF === 'trend' && !r._trendOn) return false;
     if (oppF === 'diag' && !r._diagOn) return false;
     if (oppF === 'doc' && !r._docOn) return false;
-    if (oppF === 'any' && !r._trendOn && !r._diagOn && !r._docOn) return false;
+    if (oppF === 'pillar' && !r._pillarOn) return false;
+    if (oppF === 'resolvable' && !r._resolveOn) return false;
+    if (oppF === 'covgap' && !r._covGapOn) return false;
+    if (oppF === 'any' && !r._trendOn && !r._diagOn && !r._docOn && !r._pillarOn && !r._resolveOn && !r._covGapOn) return false;
     if (q) {
       const haystack = [r.incident_id, r.title, r.owning_team, r.component_path].join(' ').toLowerCase();
       if (!haystack.includes(q)) return false;
@@ -1098,7 +1160,9 @@ function renderIncidents() {
         <div class="opp-pip">
           <span class="pip ${r._trendOn ? 'pip-trend' : 'pip-off'}" title="${r._trendOn ? 'Trend: ' + esc_html((r.trend_description||'').substring(0,100)) : 'Trend not detected'}"></span>
           <span class="pip ${r._diagOn ? 'pip-diag' : 'pip-off'}" title="${r._diagOn ? 'Diagnostic: ' + esc_html(r.suggested_diagnostic_name||'opportunity') : 'Diagnostic not detected'}"></span>
-          <span class="pip ${r._docOn ? 'pip-doc' : 'pip-off'}" title="${r._docOn ? (r.wiki_covers_topic === 'True' ? 'TSG found: ' + esc_html(r.wiki_top_result_path||'') : 'Doc gap: ' + esc_html((r.doc_gap_description||'').substring(0,100))) : 'Doc gap not detected'}"></span>
+          <span class="pip ${r._pillarOn ? 'pip-pillar' : 'pip-off'}" title="${r._pillarOn ? 'Pillar opportunity: ' + esc_html(r.pillar_opp_name||'') : 'No Pillar opportunity'}"></span>
+          <span class="pip ${r._resolveOn ? 'pip-resolve' : r._covGapOn ? 'pip-covgap' : 'pip-off'}" title="${r._resolveOn ? 'Existing ' + esc_html((r.existing_diag_platform||'').toUpperCase()) + ' diagnostic could resolve: ' + esc_html(r.existing_diag_name||'') : r._covGapOn ? 'Gap in ' + esc_html((r.diag_coverage_gap_platform||'').toUpperCase()) + ' diagnostic: ' + esc_html(r.diag_coverage_gap_name||'') : 'No existing diagnostic match'}"></span>
+          <span class="pip ${r._docOn ? 'pip-doc' : 'pip-off'}" title="${r._docOn ? (r._featureArea ? '[' + esc_html(r._featureArea) + '] ' : '') + (r._coverageGapType === 'full' ? 'TSG found: ' + esc_html(r.wiki_top_result_path||'') : r._coverageGapType === 'partial_platform' ? 'TSG found (platform gap): ' + esc_html(r.wiki_top_result_path||'') : 'Doc gap: ' + esc_html((r.doc_gap_description||'').substring(0,100))) : 'Doc gap not detected'}"></span>
         </div>
         ${incOppLabel(r)}
       </td>
@@ -1109,6 +1173,8 @@ function renderIncidents() {
 }
 
 function incOppLabel(r) {
+  if (r._resolveOn) return `<div class="opp-label">✅ ${esc_html((r.existing_diag_platform||'').toUpperCase())}: ${esc_html(r.existing_diag_name || '')}</div>`;
+  if (r._covGapOn) return `<div class="opp-label">⚠️ Gap: ${esc_html(r.diag_coverage_gap_name || '')}</div>`;
   if (r._diagOn && r.suggested_diagnostic_name) return `<div class="opp-label">🔬 ${esc_html(r.suggested_diagnostic_name)}</div>`;
   if (r._docOn && r.wiki_top_result_path) {
     const label = r.wiki_top_result_path.split('/').filter(Boolean).pop() || r.wiki_top_result_path;
@@ -1127,7 +1193,10 @@ function incOppLabel(r) {
 function pipLegend() {
   return `<div style="display:flex;gap:12px;font-size:11px;color:var(--ms-text-secondary);margin-bottom:8px;flex-wrap:wrap">
     <span><span class="pip pip-trend" style="display:inline-block;margin-right:4px"></span>Trend</span>
-    <span><span class="pip pip-diag" style="display:inline-block;margin-right:4px"></span>Diagnostic</span>
+    <span><span class="pip pip-diag" style="display:inline-block;margin-right:4px"></span>MRCA / Diagnostic</span>
+    <span><span class="pip pip-pillar" style="display:inline-block;margin-right:4px"></span>Pillar</span>
+    <span><span class="pip pip-resolve" style="display:inline-block;margin-right:4px"></span>Existing diag resolves</span>
+    <span><span class="pip pip-covgap" style="display:inline-block;margin-right:4px"></span>Diag gap</span>
     <span><span class="pip pip-doc" style="display:inline-block;margin-right:4px"></span>Doc Gap</span>
   </div>`;
 }
@@ -1187,8 +1256,13 @@ function buildDetailCard(r) {
     oppsHtml += `<div class="inc-detail-opp">${body}</div>`;
   }
 
+  oppsHtml += coverageDetailBlocks(r);
+
   if (r._docOn) {
     let body = oppRow('📚', 'Documentation Gap', r.doc_gap_description, r.doc_gap_confidence);
+    if (r._featureArea) {
+      body += `<div style="margin-top:6px"><span style="display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:var(--ms-purple-light,#f3eeff);color:var(--ms-purple);letter-spacing:0.04em">📂 ${esc_html(r._featureArea)}</span></div>`;
+    }
     if (r.suggested_article_title) {
       body += `<div style="margin-top:8px;font-size:12px;color:var(--ms-text-secondary)">Suggested article: <em>${esc_html(r.suggested_article_title)}</em></div>`;
     }
@@ -1298,21 +1372,45 @@ function buildBugsBlock(r) {
 function wikiRefBlock(r) {
   if (r.wiki_searched !== 'True' || (!r._wikiUrl && !r.wiki_top_result_path)) return '';
   const covers = r.wiki_covers_topic === 'True';
-  let html = `<div style="margin-top:8px"><span class="badge ${covers ? 'b-green' : 'b-red'}">${covers ? '📄 TSG found' : 'Wiki gap confirmed'}</span></div>`;
+  const gapType = r._coverageGapType || (covers ? 'full' : 'none');
+
+  // Badge: color + label based on coverage_gap_type
+  let badgeClass, badgeLabel;
+  if (gapType === 'full') {
+    badgeClass = 'b-green'; badgeLabel = '📄 TSG found';
+  } else if (gapType === 'partial_platform') {
+    badgeClass = 'b-yellow'; badgeLabel = '📄 TSG found — platform gap';
+  } else {
+    badgeClass = 'b-red'; badgeLabel = 'Wiki gap confirmed';
+  }
+
+  let html = `<div style="margin-top:8px"><span class="badge ${badgeClass}">${badgeLabel}</span>`;
+  if (gapType === 'partial_platform') {
+    html += `<span style="font-size:10px;color:var(--ms-orange,#ca5010);margin-left:6px">Article needs platform-specific content added</span>`;
+  }
+  html += `</div>`;
+
+  // Platform tag helper
+  const platformLabel = p => p === 'desktop' ? '🖥️ Desktop' : p === 'devices' ? '📱 Devices' : p === 'both' ? '🖥️📱 Both' : null;
+
   if (r._wikiUrl) {
     const label = (r.wiki_top_result_path || '').split('/').filter(Boolean).pop() || r.wiki_top_result_path;
+    const topPlatform = r._wikiPlatformTags[0] ? platformLabel(r._wikiPlatformTags[0]) : null;
+    const platformTag = topPlatform ? `<span style="font-size:10px;color:var(--ms-text-disabled);margin-left:5px">${topPlatform}</span>` : '';
     html += `<div style="margin-top:8px;font-size:12px">
       <span style="color:var(--ms-text-secondary)">Wiki reference: </span>
       <a href="${r._wikiUrl}" target="_blank" rel="noopener" style="color:var(--ms-brand);text-decoration:none;font-weight:600"
-         title="${esc_html(r.wiki_top_result_path)}">${esc_html(label)} ↗</a>
+         title="${esc_html(r.wiki_top_result_path)}">${esc_html(label)} ↗</a>${platformTag}
     </div>`;
     if (r._wikiPaths.length > 1) {
-      const extra = r._wikiPaths.slice(1).map(p => {
+      const extra = r._wikiPaths.slice(1).map((p, i) => {
         const url = wikiPathToUrl(p);
         const lbl = p.split('/').filter(Boolean).pop() || p;
-        return url
+        const tag = r._wikiPlatformTags[i + 1] ? platformLabel(r._wikiPlatformTags[i + 1]) : null;
+        const tagHtml = tag ? ` <span style="font-size:10px;color:var(--ms-text-disabled)">${tag}</span>` : '';
+        return (url
           ? `<a href="${url}" target="_blank" rel="noopener" style="color:var(--ms-brand);text-decoration:none" title="${esc_html(p)}">${esc_html(lbl)}</a>`
-          : esc_html(lbl);
+          : esc_html(lbl)) + tagHtml;
       }).join(' · ');
       html += `<div style="margin-top:4px;font-size:11px;color:var(--ms-text-secondary)">Also: ${extra}</div>`;
     }
@@ -1447,17 +1545,157 @@ function renderDiagnostics() {
 }
 
 // ══════════════════════════════════════════════════════════
+// DIAGNOSTIC COVERAGE (existing MRCA + Pillar)
+// ══════════════════════════════════════════════════════════
+function platformBadge(p) {
+  if (p === 'pillar') return `<span class="badge b-pillar">Pillar</span>`;
+  if (p === 'mrca') return `<span class="badge b-mrca">MRCA</span>`;
+  return '';
+}
+
+function coverageDetailBlocks(r) {
+  let html = '';
+  const ranNote = bool(r.diagnostic_run_in_incident)
+    ? `<div style="margin-top:6px;font-size:12px;color:var(--ms-text-secondary)">🧪 Diagnostic already run in incident: <strong>${esc_html(r.diagnostic_run_name || 'yes')}</strong></div>` : '';
+  if (r._resolveOn) {
+    let body = oppRow('✅', 'Existing diagnostic could have resolved: ' + (r.existing_diag_name || ''), r.existing_diag_how_resolves, r.existing_diag_confidence);
+    body += `<div style="margin-top:6px;display:flex;gap:6px;align-items:center">${platformBadge(r.existing_diag_platform)}<code style="font-size:11px">${esc_html(r.existing_diag_key || '')}</code></div>` + ranNote;
+    html += `<div class="inc-detail-opp">${body}</div>`;
+  }
+  if (r._covGapOn) {
+    let body = oppRow('⚠️', 'Gap in existing diagnostic: ' + (r.diag_coverage_gap_name || ''), r.diag_coverage_gap_missing_check, r.diag_coverage_gap_confidence);
+    body += `<div style="margin-top:6px;display:flex;gap:6px;align-items:center">${platformBadge(r.diag_coverage_gap_platform)}<code style="font-size:11px">${esc_html(r.diag_coverage_gap_key || '')}</code></div>`;
+    if (r.diag_coverage_gap_enhancement) body += `<div class="diag-section-label">Suggested enhancement</div><div class="diag-desc">${esc_html(r.diag_coverage_gap_enhancement)}</div>`;
+    body += ranNote;
+    html += `<div class="inc-detail-opp">${body}</div>`;
+  }
+  if (r._pillarOn) {
+    let body = oppRow('🧩', 'Pillar Diagnostic Opportunity: ' + (r.pillar_opp_name || ''), r.pillar_opp_description, r.pillar_opp_confidence);
+    const area = [r.pillar_opp_product, r.pillar_opp_category].filter(Boolean).join(' / ');
+    if (area) body += `<div style="margin-top:6px"><span class="badge b-pillar">${esc_html(area)}</span></div>`;
+    if (r._pillarChecks.length) body += `<ul class="steps-list" style="margin-top:10px">${r._pillarChecks.map(s=>`<li>${esc_html(s)}</li>`).join('')}</ul>`;
+    if (r._pillarSources.length) body += `<div style="margin-top:6px;font-size:12px;color:var(--ms-text-secondary)">Data sources: ${r._pillarSources.map(esc_html).join(', ')}</div>`;
+    html += `<div class="inc-detail-opp">${body}</div>`;
+  }
+  if (html && r.diag_coverage_reasoning) html += `<div class="inc-detail-opp">${reasoningBlock(r.diag_coverage_reasoning)}</div>`;
+  return html;
+}
+
+function coverageLeaderboard(data) {
+  // Aggregate per existing diagnostic: incidents it could resolve vs incidents where it has a gap
+  const agg = {};
+  const add = (key, name, platform, kind, id) => {
+    if (!key) return;
+    agg[key] = agg[key] || { key, name, platform, resolvable: [], gap: [] };
+    agg[key][kind].push(id);
+  };
+  data.forEach(r => {
+    if (r._resolveOn) add(r.existing_diag_key, r.existing_diag_name, r.existing_diag_platform, 'resolvable', r.incident_id);
+    if (r._covGapOn) add(r.diag_coverage_gap_key, r.diag_coverage_gap_name, r.diag_coverage_gap_platform, 'gap', r.incident_id);
+  });
+  const rows = Object.values(agg).sort((a, b) => (b.resolvable.length + b.gap.length) - (a.resolvable.length + a.gap.length));
+  if (!rows.length) return '';
+  return `<table class="cov-table">
+    <thead><tr><th>Existing diagnostic</th><th>Platform</th><th style="text-align:right">Could resolve</th><th style="text-align:right">Gaps</th><th>Incidents</th></tr></thead>
+    <tbody>${rows.slice(0, 25).map(a => `<tr>
+      <td><strong>${esc_html(a.name)}</strong><div style="font-size:10px;color:var(--ms-text-disabled);font-family:monospace">${esc_html(a.key)}</div></td>
+      <td>${platformBadge(a.platform)}</td>
+      <td class="num" style="color:var(--ms-green)">${a.resolvable.length || ''}</td>
+      <td class="num" style="color:var(--ms-red)">${a.gap.length || ''}</td>
+      <td style="font-family:monospace;font-size:11px">${[...a.resolvable, ...a.gap].slice(0, 8).map(esc_html).join(', ')}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function renderCoverage() {
+  const all = state.analysisData || [];
+  const lb = document.getElementById('cov-leaderboard');
+  if (lb) lb.innerHTML = coverageLeaderboard(all);
+  const q = (document.getElementById('cov-search')?.value || '').toLowerCase();
+  const viewF = document.getElementById('cov-f-view')?.value || '';
+  const platF = document.getElementById('cov-f-platform')?.value || '';
+
+  const items = [];
+  all.forEach(r => {
+    if (r._resolveOn) items.push({ kind: 'resolvable', r, platform: r.existing_diag_platform, conf: num(r.existing_diag_confidence) });
+    if (r._covGapOn) items.push({ kind: 'covgap', r, platform: r.diag_coverage_gap_platform, conf: num(r.diag_coverage_gap_confidence) });
+    if (r._pillarOn) items.push({ kind: 'pillar', r, platform: 'pillar', conf: num(r.pillar_opp_confidence) });
+  });
+  const filtered = items.filter(it => {
+    if (viewF && it.kind !== viewF) return false;
+    if (platF && it.platform !== platF) return false;
+    if (q) {
+      const r = it.r;
+      const hay = [r.incident_id, r.title, r.existing_diag_name, r.diag_coverage_gap_name, r.pillar_opp_name, r.existing_diag_key, r.diag_coverage_gap_key].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => b.conf - a.conf);
+
+  document.getElementById('cov-count').textContent = `${filtered.length} findings`;
+  const listEl = document.getElementById('cov-list');
+  if (!filtered.length) {
+    listEl.innerHTML = `<div style="text-align:center;padding:40px;color:var(--ms-text-disabled);font-style:italic">No diagnostic coverage findings match the current filters${all.length && !all.some(r => 'diag_coverage_status' in r) ? ' (this CSV was produced before coverage analysis was added)' : ''}.</div>`;
+    return;
+  }
+  listEl.innerHTML = filtered.slice(0, 200).map(({ kind, r, platform, conf }) => {
+    let title, body = '';
+    if (kind === 'resolvable') {
+      title = `✅ ${esc_html(r.existing_diag_name)}`;
+      body = `<div class="diag-section-label">Could have resolved this incident</div><div class="diag-desc">${esc_html(r.existing_diag_how_resolves || '')}</div>`;
+    } else if (kind === 'covgap') {
+      title = `⚠️ ${esc_html(r.diag_coverage_gap_name)}`;
+      body = `<div class="diag-section-label">What the diagnostic misses</div><div class="diag-desc">${esc_html(r.diag_coverage_gap_missing_check || '')}</div>`
+        + (r.diag_coverage_gap_enhancement ? `<div class="diag-section-label">Suggested enhancement</div><div class="diag-desc">${esc_html(r.diag_coverage_gap_enhancement)}</div>` : '');
+    } else {
+      title = `🧩 ${esc_html(r.pillar_opp_name || 'New Pillar diagnostic')}`;
+      const area = [r.pillar_opp_product, r.pillar_opp_category].filter(Boolean).join(' / ');
+      body = `<div class="diag-section-label">New Pillar diagnostic${area ? ' · ' + esc_html(area) : ''}</div><div class="diag-desc">${esc_html(r.pillar_opp_description || '')}</div>`
+        + (r._pillarChecks.length ? `<div class="diag-section-label">Checks</div><ul class="steps-list">${r._pillarChecks.map(s => `<li>${esc_html(s)}</li>`).join('')}</ul>` : '')
+        + (r._pillarSources.length ? `<div style="margin-top:6px;font-size:12px;color:var(--ms-text-secondary)">Data sources: ${r._pillarSources.map(esc_html).join(', ')}</div>` : '');
+    }
+    const ran = bool(r.diagnostic_run_in_incident) ? `<span class="badge b-gray">🧪 diag run: ${esc_html(r.diagnostic_run_name || 'yes')}</span>` : '';
+    return `<div class="cov-card ${kind === 'covgap' ? 'gap' : kind === 'pillar' ? 'pillar' : ''}">
+      <div class="diag-card-header">
+        <span class="diag-name" style="color:var(--ms-text)">${title}</span>
+        <span class="id-mono">#${esc_html(r.incident_id)}</span>
+        <span class="sev-dot sev-${r._sev}">${r._sev}</span>
+        <span class="badge b-gray">${(conf*100).toFixed(0)}% confidence</span>
+        ${platformBadge(platform)} ${ran}
+      </div>
+      ${body}
+      ${r.diag_coverage_reasoning ? `<div class="diag-section-label" style="color:var(--ms-text-disabled)">Why</div><div class="diag-desc" style="color:var(--ms-text-secondary);font-style:italic;font-size:12px">${esc_html(r.diag_coverage_reasoning)}</div>` : ''}
+      <div style="margin-top:10px;font-size:11px;color:var(--ms-text-secondary)">Incident: <em>${esc_html(r.title)}</em>${r.component_path ? ` · ${esc_html(r.component_path)}` : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════
 // CLUSTERS TAB
 // ══════════════════════════════════════════════════════════
 function renderClusters() {
   const data = state.clusterData || [];
   const q = (document.getElementById('cluster-search')?.value || '').toLowerCase();
   const prioF = document.getElementById('cluster-f-prio')?.value || '';
+  const catF = document.getElementById('cluster-f-cat')?.value || '';
+
+  // Populate EXO category dropdown once (when it only has the placeholder)
+  const catSel = document.getElementById('cluster-f-cat');
+  if (catSel && catSel.options.length <= 1 && data.length) {
+    const cats = [...new Set(data.map(r => r.exo_category || '').filter(Boolean))].sort();
+    cats.forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat;
+      opt.textContent = cat;
+      catSel.appendChild(opt);
+    });
+  }
 
   const filtered = data.filter(r => {
     if (prioF && r.priority !== prioF) return false;
+    if (catF && (r.exo_category || '') !== catF) return false;
     if (q) {
-      const hay = [r.cluster_name, r.theme, r.recommended_pm_action, r.evidence_summary].join(' ').toLowerCase();
+      const hay = [r.cluster_name, r.theme, r.recommended_pm_action, r.evidence_summary, r.exo_category || ''].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -1477,8 +1715,10 @@ function renderClusters() {
     const pbarClass = 'pbar-' + prio;
     const isProdImprovement = c._domTypes.includes('product_improvement');
     const typesBadges = c._domTypes.map(t => {
-      const labels = { trend_detection: 'Trend', diagnostic_gap: 'Diagnostic', documentation_gap: 'Doc Gap', product_improvement: 'Product Opportunity' };
-      const cls = { trend_detection: 'b-blue', diagnostic_gap: 'b-teal', documentation_gap: 'b-purple', product_improvement: 'b-orange' };
+      const labels = { trend_detection: 'Trend', diagnostic_gap: 'MRCA / Diagnostic', documentation_gap: 'Doc Gap', product_improvement: 'Product Opportunity',
+                       pillar_opportunity: 'Pillar Opportunity', existing_diag_resolvable: 'Existing Diag Resolves', diag_coverage_gap: 'Diag Gap' };
+      const cls = { trend_detection: 'b-blue', diagnostic_gap: 'b-teal', documentation_gap: 'b-purple', product_improvement: 'b-orange',
+                    pillar_opportunity: 'b-pillar', existing_diag_resolvable: 'b-green', diag_coverage_gap: 'b-red' };
       return `<span class="badge ${cls[t] || 'b-gray'}">${labels[t] || t}</span>`;
     }).join(' ');
 
@@ -1491,6 +1731,27 @@ function renderClusters() {
     }).join('') + (c._ids.length > 15 ? `<span class="inc-pill" style="color:var(--ms-text-disabled)">+${c._ids.length - 15} more</span>` : '');
 
     const actionLabel = isProdImprovement ? 'User Stories / PM Backlog' : 'PM Action';
+
+    // Diagnostics roll-up (MRCA + Pillar coverage)
+    const nRes = parseInt(c.existing_diag_resolvable_count) || 0;
+    const nGap = parseInt(c.diag_coverage_gap_count) || 0;
+    const nPil = parseInt(c.pillar_opportunity_count) || 0;
+    const nMrca = parseInt(c.mrca_opportunity_count) || 0;
+    const splitList = v => (v || '').split(';').map(x => x.trim()).filter(Boolean);
+    const topRes = splitList(c.top_resolvable_diagnostics), topGap = splitList(c.top_gap_diagnostics);
+    const diagHtml = (nRes || nGap || nPil || nMrca || c.diagnostic_recommendation) ? `
+      <div class="cluster-diag">
+        <div class="cluster-diag-label">🧪 Diagnostics</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px">
+          ${nRes ? `<span class="badge b-green">${nRes} resolvable by existing diag</span>` : ''}
+          ${nGap ? `<span class="badge b-red">${nGap} diag gaps</span>` : ''}
+          ${nPil ? `<span class="badge b-pillar">${nPil} Pillar opp.</span>` : ''}
+          ${nMrca ? `<span class="badge b-mrca">${nMrca} MRCA opp.</span>` : ''}
+        </div>
+        ${topRes.length ? `<div>✅ <strong>Could resolve:</strong> ${topRes.map(esc_html).join(' · ')}</div>` : ''}
+        ${topGap.length ? `<div>⚠️ <strong>Gaps in:</strong> ${topGap.map(esc_html).join(' · ')}</div>` : ''}
+        ${c.diagnostic_recommendation ? `<div style="margin-top:4px">${esc_html(c.diagnostic_recommendation)}</div>` : ''}
+      </div>` : '';
 
     // Wiki references — aggregate from incidents in this cluster (requires analysis CSV loaded)
     const wikiRefs = state.analysisData ? clusterWikiRefs(c._ids) : [];
@@ -1520,6 +1781,7 @@ function renderClusters() {
           <div class="cluster-meta">
             <span class="badge ${prioClass}">${prio.toUpperCase()}</span>
             &nbsp;${c.incident_count || c._ids.length} incidents
+            ${c.exo_category ? `&nbsp;<span style="font-size:11px;background:#f0f4ff;color:#1a56db;border:1px solid #c7d7f8;border-radius:4px;padding:1px 6px;font-weight:600">${esc_html(c.exo_category)}</span>` : ''}
           </div>
         </div>
       </div>
@@ -1528,6 +1790,7 @@ function renderClusters() {
         <div class="cluster-action-label">${actionLabel}</div>
         ${esc_html(c.recommended_pm_action)}
       </div>` : ''}
+      ${diagHtml}
       ${typesBadges ? `<div style="margin-bottom:8px;display:flex;gap:4px;flex-wrap:wrap">${typesBadges}</div>` : ''}
       ${c.evidence_summary ? `<div style="font-size:12px;color:var(--ms-text-secondary);margin-bottom:8px;line-height:1.5">${esc_html(c.evidence_summary)}</div>` : ''}
       ${wikiRefsHtml}
